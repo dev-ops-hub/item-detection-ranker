@@ -45,11 +45,11 @@ def run(spark, config: PipelineConfig):
     
     # get the indices of each field for Output
     geo_loc_idx = OUTPUT_SCHEMA.fieldNames().index("geographical_location")
-  
+    
+    # configure the transformation pipeline
     pipeline = TransformationPipeline([
         DeduplicatorTransform(key_index= detection_idx),
-        AggregatorTransform(key_indices=(geo_oid_idx, 
-                                         item_name_idx)),
+        AggregatorTransform(key_indices=(geo_oid_idx, item_name_idx)),
         RankingTransform(top_x=config.top_x),
         EnricherTransform(
             enrich_data=dataset_b_broadcast,
@@ -57,12 +57,13 @@ def run(spark, config: PipelineConfig):
             insert_pos=geo_loc_idx
         ),
     ])
-
-    result_rdd = pipeline.run(dataset_a_rdd)    
-    
-    sample = result_rdd.take(5)
-    for row in sample:
-        print(row)
-
+    # run the transformation pipeline  
+    result_rdd = pipeline.run(dataset_a_rdd)
+        
+    # write the results to the output path
     RDDIOFactory.write_rdd(spark, result_rdd, PARQUET_FORMAT, config.output_path, OUTPUT_SCHEMA )
+    
+    # sample = result_rdd.take(5)
+    # for row in sample:
+    #     print(row)
 
