@@ -1,0 +1,401 @@
+================================================================================
+  PySpark RDD Pipeline — Design Considerations & Proposed Spark Configurations
+================================================================================
+Date:    2026-04-18
+Author:  Data Engineering Team
+Project: Top-X Item Detection per Geographical Location
+================================================================================
+
+
+1. PROBLEM STATEMENT
+====================
+
+Compute the top X most frequently detected items per geographical location
+from video camera detection data in the Town of Utopia.
+
+Inputs:
+  - Dataset A (~1M rows): detection events with geo location, camera, item,
+    timestamp, and a detection_oid that may contain upstream duplicates.
+  - Dataset B (~10K rows): lookup table mapping geographical_location_oid to
+    human-readable location names.
+
+Output:
+  - Per-location ranked list of the X most popular items, with rank 1 being
+    the most frequently detected.
+
+
+2. ARCHITECTURE & PROJECT LAYOUT
+=================================
+
+The project follows a layered architecture with clear separation of concerns:
+
+  src/
+  ├─ main.py                  Entry point: CLI parsing, SparkSession, orchestration
+  ├─ config.py                Immutable PipelineConfig dataclass
+  ├─ io/parquet_io.py         Parquet read/write (sole DataFrame API usage)
+  └─ transformations/
+      ├─ base.py              Abstract RDDTransformation base class
+      ├─ deduplication.py     Deduplicate by detection_oid
+      ├─ aggregation.py       Count items per (location, item) pair
+      ├─ ranking.py           Rank + top-X filter per location
+      ├─ enrichment.py        Broadcast map-side join with location names
+      └─ pipeline.py          TransformationPipeline orchestrator
+
+Key architectural decisions:
+  a) DataFrame API is used ONLY in parquet_io.py for reading and writing
+     parquet files. All transformation logic operates exclusively on RDDs,
+     as required by the specification.
+  b) Each transformation is a self-contained class inheriting from
+     RDDTransformation, enabling independent testing and reuse.
+  c) The pipeline orchestrator (TransformationPipeline) chains transforms
+     sequentially, decoupling the composition from implementation.
+
+
+3. DESIGN PATTERNS
+==================
+
+3.1 Strategy Pattern (via RDDTransformation base class)
+-------------------------------------------------------
+Each transformation (deduplication, aggregation, ranking, enrichment) is an
+independent strategy implementing the execute(rdd) -> rdd interface. This
+allows:
+  - Swapping any transform without modifying the rest of the pipeline.
+  - Building entirely different pipelines for different specifications by
+    composing different transform objects.
+  - Example: to produce a "top X items globally" report, replace
+    AggregationTransform with a variant that groups by item_name only.
+
+3.2 Pipeline/Chain Pattern (TransformationPipeline)
+---------------------------------------------------
+The orchestrator accepts a list of RDDTransformation objects and applies
+them sequentially. Benefits:
+  - Adding/removing/reordering stages requires only changing the list
+    passed to TransformationPipeline, not modifying any transform class.
+  - Each stage's input/output contract is explicit (RDD of tuples).
+  - The pipeline is testable at both unit (individual transform) and
+    integration (full chain) levels.
+
+3.3 Immutable Configuration (PipelineConfig dataclass)
+------------------------------------------------------
+A frozen dataclass encapsulates all runtime parameters (input paths, output
+path, top_x). This ensures configuration is not accidentally mutated during
+pipeline execution and provides a clean data contract between the CLI
+layer and the pipeline logic.
+
+3.4 Broadcast Variable Pattern (BroadcastJoinTransform)
+-------------------------------------------------------
+Dataset B is collected into a Python dict, broadcast to all executors, and
+used for map-side lookups. This is a classic Spark optimization pattern for
+small-large table joins. The transform is generic: it accepts any broadcast
+dict, a key index, and an insert position, making it reusable for
+different enrichment tasks.
+
+
+4. PIPELINE STAGES — ALGORITHMS & COMPLEXITY
+=============================================
+
+Stage 1: Deduplication (DeduplicationTransform)
+------------------------------------------------
+  Algorithm:
+    rdd.map(row -> (detection_oid, row))
+       .reduceByKey(keep_first)
+       .map(kv -> kv[1])
+
+  Why reduceByKey over distinct() or groupByKey:
+    - reduceByKey performs map-side combine before shuffle, minimizing
+      data transferred across the network.
+    - distinct() would hash the entire row; reduceByKey on detection_oid
+      is more targeted and handles cases where duplicate detection_oids
+      have slightly different metadata fields.
+    - groupByKey would materialize all duplicates in memory before
+      discarding them — wasteful for this use case.
+
+  Complexity: O(n) time, 1 shuffle stage.
+
+Stage 2: Aggregation (AggregationTransform)
+-------------------------------------------
+  Algorithm:
+    rdd.map(row -> ((geo_oid, item_name), 1))
+       .reduceByKey(add)
+
+  Why reduceByKey(add):
+    - Combinable: partial sums are computed per partition before shuffle,
+      reducing network I/O by orders of magnitude compared to groupByKey
+      followed by len().
+    - The operator (add) is associative and commutative, making it ideal
+      for distributed reduction.
+
+  Complexity: O(n) time, 1 shuffle stage.
+
+Stage 3: Ranking (RankingTransform)
+-----------------------------------
+  Algorithm:
+    rdd.map(kv -> (geo_oid, (item_name, count)))
+       .groupByKey()
+       .flatMap(sort desc by count, break ties alphabetically, take top_x,
+               assign rank 1..top_x)
+
+  Why groupByKey here:
+    - After aggregation, the data is already reduced to (unique location-
+      item pairs, count). For ~1M initial rows across ~10K locations,
+      this intermediate RDD is at most ~10K * num_unique_items entries,
+      which is far smaller than the original dataset.
+    - Sorting must occur over the complete set of items within each group
+      to assign correct ranks, making groupByKey appropriate here.
+    - Per-group sorting is O(k log k) where k is the number of unique
+      items per location — typically small.
+
+  Tie-breaking: items with identical counts are sorted alphabetically by
+  item_name, ensuring deterministic, reproducible output across runs.
+
+  Complexity: O(m) time where m is the aggregated item count, 1 shuffle
+  stage. Per-group sorting is O(k log k) per location.
+
+Stage 4: Enrichment (BroadcastJoinTransform)
+--------------------------------------------
+  Algorithm:
+    broadcast_dict = sc.broadcast(locations_dict)
+    rdd.map(row -> insert location_name from broadcast lookup)
+
+  Why broadcast join instead of RDD.join():
+    - Dataset B (~10K rows) easily fits in executor memory.
+    - Map-side lookup adds ZERO shuffle stages.
+    - Avoids the overhead of partitioning and shuffling both RDDs for a
+      standard hash join.
+    - This also satisfies the bonus criterion of joining without using
+      .join() explicitly.
+
+  Complexity: O(n) time, 0 shuffle stages. Broadcast cost: one-time
+  O(10K) network transfer to each executor.
+
+
+5. SHUFFLE ANALYSIS
+===================
+
+Total shuffle stages: 3
+
+  Stage  | Operator                    | Data Volume Moving
+  -------|-----------------------------|------------------------------------
+  1      | reduceByKey (dedup)         | Reduced: map-side combine on oid
+  2      | reduceByKey (aggregation)   | Reduced: map-side combine on counts
+  3      | groupByKey (ranking)        | Small: post-aggregation entries only
+
+The broadcast join adds 0 additional shuffles. By contrast, using RDD.join()
+for enrichment would add a 4th shuffle on potentially large data.
+
+Overall: 3 shuffles is near-optimal for this pipeline. The first two benefit
+from map-side combiners (reduceByKey), and the third operates on a much
+smaller dataset after aggregation.
+
+
+6. DATA CORRECTNESS CONSIDERATIONS
+===================================
+
+  a) Duplicate detection_oid handling:
+     The spec states duplicate detection_oids exist due to upstream ingestion
+     errors. Each detection_oid is counted at most once via reduceByKey.
+     The first row encountered per detection_oid is kept (arbitrary but
+     deterministic within a single Spark execution). Since only
+     (geo_oid, item_name) are used after dedup, and duplicates share
+     the same detection event, this is correct.
+
+  b) Deterministic ranking:
+     Ties in item counts are broken alphabetically by item_name. Without
+     this, rank assignment would be non-deterministic across runs, making
+     testing unreliable.
+
+  c) Missing location lookups:
+     If a geo_oid in Dataset A has no corresponding entry in Dataset B,
+     the enrichment stage inserts "Unknown" as the location name rather
+     than failing or dropping the row. This defensive handling prevents
+     data loss from referential integrity gaps.
+
+  d) Edge case — fewer items than top_x:
+     If a location has fewer than X unique items, all items are returned
+     (ranks 1..k where k < X). The pipeline does not pad or error.
+
+
+7. RUNTIME CONFIGURABILITY
+===========================
+
+Four parameters are configurable at runtime via CLI arguments:
+
+  --detections-path   Input path for Dataset A (detections parquet)
+  --locations-path    Input path for Dataset B (locations parquet)
+  --output-path       Output path for the result parquet
+  --top-x             Number of top items to return per location
+
+These are parsed by argparse in main.py and wrapped in a PipelineConfig
+dataclass, cleanly separating CLI concerns from pipeline logic.
+
+
+8. TESTING STRATEGY
+===================
+
+8.1 Unit Tests (12 tests across 3 modules)
+-------------------------------------------
+  test_deduplication.py:
+    - Removes duplicate detection_oids correctly
+    - No-duplicates data passes through unchanged
+    - All-same detection_oid collapses to one row
+    - Output tuple structure is preserved (5 elements)
+
+  test_aggregation.py:
+    - Correct counts per (geo_oid, item_name) group
+    - Single item produces count of 1
+    - Same item across locations counted separately
+
+  test_ranking.py:
+    - Ranks by count descending
+    - top_x filter limits output
+    - Tie-breaking is alphabetical
+    - Multiple groups ranked independently
+    - Fewer items than top_x returns all
+
+8.2 Integration Tests (5 tests)
+--------------------------------
+  - Basic top-3 across 2 locations (end-to-end with parquet I/O)
+  - Duplicate detection_oid handling through full pipeline
+  - Fewer items than top_x
+  - Tied counts with alphabetical ordering
+  - Output schema validation (column names and types)
+
+8.3 Test Infrastructure
+------------------------
+  - Shared SparkSession fixture (conftest.py) using local[2] mode
+  - spark.ui.enabled=false to avoid port conflicts in CI
+  - spark.sql.shuffle.partitions=2 for fast, small-data tests
+  - tmp_path fixture for isolated parquet I/O per test
+
+
+9. CODE QUALITY & LINTING
+==========================
+
+  - Flake8 configured in setup.cfg with max-line-length=120.
+  - All source and test files pass Flake8 with zero violations.
+  - Consistent coding style: PEP 8 naming, minimal imports, no unused
+    variables, docstrings on all public classes and methods.
+
+
+10. PROPOSED SPARK CONFIGURATIONS
+==================================
+
+10.1 Local Development / Testing
+---------------------------------
+  spark.master                       = local[*]
+  spark.ui.enabled                   = false
+  spark.sql.shuffle.partitions       = 2
+  spark.serializer                   = org.apache.spark.serializer.KryoSerializer
+  spark.driver.memory                = 1g
+
+  Rationale: Minimal overhead for rapid iteration. Shuffle partitions set
+  to 2 since test data is tiny. UI disabled to avoid port conflicts.
+
+10.2 Single-Node / Small Cluster (~1M rows)
+--------------------------------------------
+  spark.master                       = local[*] or yarn
+  spark.serializer                   = org.apache.spark.serializer.KryoSerializer
+  spark.sql.shuffle.partitions       = 64
+  spark.default.parallelism          = 64
+  spark.driver.memory                = 2g
+  spark.executor.memory              = 4g
+  spark.executor.cores               = 2
+  spark.rdd.compress                 = true
+  spark.shuffle.compress             = true
+  spark.shuffle.spill.compress       = true
+  spark.sql.adaptive.enabled         = true
+
+  Rationale:
+  - KryoSerializer: 2-10x faster than default Java serialization; critical
+    for RDD-heavy workloads with many tuple shuffles.
+  - 64 shuffle partitions: good starting point for ~1M rows across a small
+    cluster. Prevents too-small partitions (wasted overhead) or too-large
+    partitions (memory pressure, stragglers).
+  - RDD/shuffle compression: reduces network I/O at the cost of minor CPU
+    usage — a favorable trade-off for this pipeline where shuffles dominate.
+  - Adaptive query execution: helps rebalance partitions dynamically in
+    mixed DataFrame/RDD stages (parquet read/write).
+  - 4g executor memory accommodates the groupByKey in ranking and the
+    broadcast variable (~10K entries, negligible memory).
+
+10.3 Production Cluster (YARN/Kubernetes, larger data)
+-------------------------------------------------------
+  spark.master                       = yarn / k8s://...
+  spark.deploy.mode                  = cluster
+  spark.num.executors                = 4-8
+  spark.executor.cores               = 4
+  spark.executor.memory              = 8g
+  spark.driver.memory                = 4g
+  spark.serializer                   = org.apache.spark.serializer.KryoSerializer
+  spark.sql.shuffle.partitions       = 200
+  spark.default.parallelism          = 200
+  spark.rdd.compress                 = true
+  spark.shuffle.compress             = true
+  spark.shuffle.spill.compress       = true
+  spark.sql.adaptive.enabled         = true
+  spark.sql.adaptive.coalescePartitions.enabled = true
+  spark.speculation                  = true
+  spark.speculation.quantile         = 0.9
+  spark.dynamicAllocation.enabled    = true
+  spark.dynamicAllocation.minExecutors = 2
+  spark.dynamicAllocation.maxExecutors = 16
+
+  Rationale:
+  - Dynamic allocation: scales executor count to actual workload, reducing
+    resource waste during lighter stages (e.g., the small ranking stage).
+  - Speculation: re-launches straggler tasks to meet SLA; quantile=0.9
+    triggers speculation only when a task is slower than 90% of peers.
+  - 200 shuffle partitions: standard recommendation for cluster-scale Spark
+    jobs; adaptive coalescing corrects if partitions are too small.
+  - Cluster deploy mode: driver runs on the cluster, not the submitting
+    machine, for fault tolerance and resource isolation.
+
+10.4 Configuration Tuning Guidance
+-----------------------------------
+  - If many tasks finish near-instantly: reduce shuffle partitions.
+  - If stages show long-tail stragglers: inspect key skew by geo_oid or
+    item_name; consider salting or repartitioning.
+  - If executors OOM at ranking stage: increase executor memory or
+    repartition before groupByKey.
+  - If broadcast join becomes slow: Dataset B is likely much larger than
+    expected; switch to a standard shuffle join.
+
+
+11. POTENTIAL FUTURE IMPROVEMENTS
+==================================
+
+If data volumes grow significantly beyond 1M rows:
+
+  a) Replace groupByKey in ranking with a combineByKey / aggregateByKey
+     approach that maintains a bounded top-K heap per partition, avoiding
+     materializing all items per group in memory.
+
+  b) Add data quality checks (null detection_oid, null item_name) with
+     configurable handling policies (drop, default, fail).
+
+  c) Add pipeline metrics/logging: row counts before and after each
+     transform stage, execution time per stage.
+
+  d) Partition output by geographical_location_oid for efficient
+     downstream queries.
+
+  e) Consider pre-partitioning the detections RDD by geo_oid to co-locate
+     data for aggregation and ranking, potentially reducing shuffle volume
+     if key distribution allows.
+
+
+12. SUMMARY
+============
+
+The implemented pipeline achieves:
+  - Full RDD-based transformation logic (DataFrame only for parquet I/O)
+  - 3 total shuffle stages (near-optimal for dedup + aggregate + rank)
+  - 0 additional shuffles from enrichment (broadcast map-side join)
+  - Deterministic output via alphabetical tie-breaking
+  - Clean separation via Strategy + Pipeline design patterns
+  - Comprehensive testing (12 unit + 5 integration tests)
+  - Flake8-clean code with max-line-length=120
+  - Runtime-configurable paths and top-X parameter
+  - Practical Spark configurations for dev, staging, and production
+
+================================================================================
