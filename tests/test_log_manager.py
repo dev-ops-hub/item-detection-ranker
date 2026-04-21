@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from common import LogManager
+from item_ranker.util import LogManager
 
 
 def test_get_logger_configures_default_logger():

@@ -12,3 +12,12 @@ dependencies = [
     "pytest>=7.0",
     "dotenv>=0.9.9",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests using real ~1M-row fixtures",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

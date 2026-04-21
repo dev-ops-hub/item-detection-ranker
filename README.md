@@ -36,19 +36,36 @@ concerns:
   │   ├─ reader_rdd.py            Concrete readers (Parquet, CSV, JSON, Text)
   │   └─ writer_rdd.py            Concrete writers with dated output paths
   ├─ jobs/
-  │   ├─ task1_etl_job.py         Main ETL job: orchestrates full pipeline
+  │   ├─ task1_etl_job.py         ETL job (baseline pipeline)
+  │   ├─ task2_etl_job.py         ETL job with data-skew detection +
+  │   │                            salted aggregation when skew detected
   │   ├─ schema/
   │   │   └─ mapping.py           StructType schemas for input/output datasets
   │   └─ transforms/
   │       ├─ base.py              Abstract RDDTransformation base class
   │       ├─ deduplicator.py      Deduplicate by detection_oid
   │       ├─ aggregator.py        Count items per (location, item) pair
+  │       ├─ salted_aggregator.py Two-phase salted aggregation for skew
   │       ├─ ranking.py           Rank + top-X filter per location
   │       ├─ enricher.py          Broadcast map-side join with location names
   │       └─ pipeline.py          TransformationPipeline orchestrator
   └─ util/
       ├─ environment.py           .env loading via python-dotenv
       └─ log_manager.py           Centralized logging configuration
+
+  tests/
+  ├─ conftest.py                  Session-scoped local SparkSession fixture
+  ├─ test_environment.py          .env loader unit tests
+  ├─ test_log_manager.py          LogManager unit tests
+  ├─ unit/                        Unit tests (config, CLI, schema, IO,
+  │   │                            writer-path, skew detection)
+  │   └─ transforms/              One file per transform class
+  └─ integration/                 End-to-end pipeline tests on local Spark
+      ├─ test_task1_etl_job.py    Synthetic-data full pipeline (task1)
+      ├─ test_task2_etl_job.py    Balanced + skewed-data paths (task2)
+      ├─ test_main_end_to_end.py  CLI subprocess driving main()
+      └─ test_with_real_fixtures.py  Smoke test on data/input/*.parquet
+                                      (parametrized for task1 + task2)
 
 Design Considerations :
   a)	Implementation must use Spark RDD for transformation logic. DataFrame API is allowed only for reading and writing Parquet.
@@ -73,6 +90,13 @@ Five parameters are configurable at runtime via CLI arguments:
 
 These are parsed by argparse in main.py and wrapped in a PipelineConfig
 frozen dataclass, cleanly separating CLI concerns from pipeline logic.
+
+Available jobs (passed via `--job`):
+  - `task1_etl_job` — baseline pipeline (dedup → aggregate → rank → enrich)
+  - `task2_etl_job` — same pipeline, but inspects partition counts at
+    runtime; if `max_partition_size / avg_partition_size > 1.5`, switches
+    to `SaltedAggregatorTransform` (two-phase reduce with random salt) to
+    mitigate hot-key skew. Final output is identical to task1.
 
 Environment configuration:
   - Place a .env file at repo root with LOG_LEVEL=INFO (or DEBUG, etc.)
@@ -123,6 +147,59 @@ Environment configuration:
     - Ensures Spark driver and workers use the same venv interpreter.
     - Prevents serialization mismatch errors (e.g. TimeType not found)
       that occur when the system Python differs from the venv Python.
+
+4.4 Run the Test Suite
+----------------------
+  All tests run on a local Spark dev environment (no cluster required).
+  The session-scoped SparkSession fixture in `tests/conftest.py` creates
+  `master("local[2]")` and is reused across all Spark tests.
+
+  Prerequisites:
+    - Same as §4.1 (venv with project deps installed).
+    - `pytest` is included as a project dependency.
+
+  IMPORTANT — Windows / Spark interpreter consistency:
+    Set `PYSPARK_PYTHON` and `PYSPARK_DRIVER_PYTHON` to the venv Python
+    (same rationale as §4.3). The conftest also unsets `SPARK_HOME` so
+    that Spark workers use the venv-installed pyspark instead of any
+    older bundled distribution (which can otherwise cause
+    `AttributeError: Can't get attribute 'TimeType'`).
+
+  From repository root (PowerShell):
+
+    $env:PYTHONPATH=(Resolve-Path .\src).Path
+    $env:PYSPARK_PYTHON=(Resolve-Path .\.venv\Scripts\python.exe).Path
+    $env:PYSPARK_DRIVER_PYTHON=$env:PYSPARK_PYTHON
+    Remove-Item env:SPARK_HOME -ErrorAction SilentlyContinue
+
+    # Fast suite (unit + synthetic-data integration). Excludes the
+    # real-fixtures smoke test marked @pytest.mark.slow.
+    .\.venv\Scripts\python.exe -m pytest -m "not slow"
+
+    # Full suite — also runs integration tests against the real
+    # data/input/dataset{A,B}.parquet fixtures for task1 AND task2,
+    # plus a cross-job equivalence check (task1 ≡ task2 output).
+    .\.venv\Scripts\python.exe -m pytest
+
+    # Run a single test or directory:
+    .\.venv\Scripts\python.exe -m pytest tests/unit -v
+    .\.venv\Scripts\python.exe -m pytest tests/integration/test_task2_etl_job.py -v
+
+  Test layout (see `tests/` tree in §2):
+    - Unit tests use the shared Spark fixture for transforms; pure-Python
+      tests (config, CLI, dated-path writer, schema mapping) need no Spark.
+    - Integration tests:
+        * `test_task1_etl_job.py` — in-process pipeline with synthetic
+          parquet (covers dedup, ranking, enrichment with missing key,
+          top-X truncation, output schema).
+        * `test_task2_etl_job.py` — covers BOTH the balanced path and
+          the skewed path that triggers `SaltedAggregatorTransform`.
+        * `test_main_end_to_end.py` — invokes `main()` via subprocess so
+          its `spark.stop()` cannot tear down the shared session.
+        * `test_with_real_fixtures.py` — `@pytest.mark.slow`, parametrized
+          over `task1_etl_job` and `task2_etl_job`, plus an equivalence
+          test asserting task1 and task2 produce identical output sets
+          (since salting must not change final results).
 
 5. Program Flow
 =================
@@ -237,15 +314,17 @@ If data volumes grow significantly beyond 1M rows:
      data for aggregation and ranking, potentially reducing shuffle volume
      if key distribution allows.
 
-  f) Add unit tests for each transform class (DeduplicatorTransform,
-     AggregatorTransform, RankingTransform, EnricherTransform) using a
-     shared SparkSession fixture with local[2] mode.
+  f) (Implemented) Unit tests for each transform class are in
+     `tests/unit/transforms/`, using a shared session-scoped SparkSession
+     fixture with `local[2]` mode (see `tests/conftest.py`).
 
-  g) Add integration tests for the full task1_etl pipeline with parquet
-     I/O and output schema validation.
+  g) (Implemented) Integration tests for both `task1_etl_job` and
+     `task2_etl_job` (incl. the salted-aggregation skew path) are in
+     `tests/integration/`, with parquet I/O and `OUTPUT_SCHEMA`
+     validation, plus a real-fixtures smoke test on `data/input/`.
 
 
-13. SUMMARY
+10. SUMMARY
 ============
 
 The implemented pipeline achieves:

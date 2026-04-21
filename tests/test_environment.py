@@ -1,4 +1,4 @@
-from common.environment import get_log_level, load_project_env
+from item_ranker.util import get_log_level, load_project_env
 
 
 def test_load_project_env_reads_dotenv_file(tmp_path, monkeypatch):
