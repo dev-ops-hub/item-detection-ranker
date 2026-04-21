@@ -67,14 +67,14 @@ concerns:
 
 ```
 Design Considerations :
-  a)	Implementation must use Spark RDD for transformation logic. DataFrame API is allowed only for reading and writing Parquet.
-  b)	Use reusable design patterns so logic can adapt to other table specs.
-  c)	Code must pass flake8 style checks and follow clean code practices.
-  d)	Consider time and space complexity, minimize shuffle stages and avoid explicit .join if possible.
-  e)	Dataset A contains duplicate detection_oid values. Each detection_oid must count once only.
-  f)	Job’s input path for Dataset A & B, and Top X value are configurable and able to change
-  g)	Job’s output path can be changed and the output shall save in parquet.
-  h) 	Unit test and integration tests shall be included and can be run in local development environment.
+    a)	Implementation must use Spark RDD for transformation logic. DataFrame API is allowed only for reading and writing Parquet.
+    b)	Use reusable design patterns so logic can adapt to other table specs.
+    c)	Code must pass flake8 style checks and follow clean code practices.
+    d)	Consider time and space complexity, minimize shuffle stages and avoid explicit .join if possible.
+    e)	Dataset A contains duplicate detection_oid values. Each detection_oid must count once only.
+    f)	Job’s input path for Dataset A & B, and Top X value are configurable and able to change
+    g)	Job’s output path can be changed and the output shall save in parquet.
+    h) 	Unit test and integration tests shall be included and can be run in local development environment.
 
 # 3. RUNTIME CONFIGURABILITY
 
@@ -223,10 +223,13 @@ CLI (main.py)
 ```
 
 **Key patterns:** 
-a) Strategy Pattern (swappable transforms), 
-b) Chain of Responsibilities Pattern (sequential stages), 
-c) Factory Pattern, 
-d) Broadcast Join Pattern (shuffle-free enrichment)
+  a) Strategy Pattern (swappable transforms), 
+  
+  b) Chain of Responsibilities Pattern (sequential stages), 
+  
+  c) Factory Pattern, 
+  
+  d) Broadcast Join Pattern (shuffle-free enrichment)
 
 # 6. Pipeline Stages
 
