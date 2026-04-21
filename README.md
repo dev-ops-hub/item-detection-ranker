@@ -1,6 +1,5 @@
 
-1. PROBLEM STATEMENT
-====================
+# 1. PROBLEM STATEMENT
 
 Compute the top X most frequently detected items per geographical location
 from video camera detection data in the Town of Utopia.
@@ -21,12 +20,11 @@ Output:
              item_name)
 
 
-2. PROJECT LAYOUT
-=================================
+# 2. PROJECT LAYOUT
 
 The project follows a src-layout architecture with clear separation of
 concerns:
-
+```
   src/item_ranker/
   ├─ main.py                      Entry point: CLI parsing, .env loading,
   │                                SparkSession, dynamic job module loading
@@ -67,6 +65,7 @@ concerns:
       └─ test_with_real_fixtures.py  Smoke test on data/input/*.parquet
                                       (parametrized for task1 + task2)
 
+```
 Design Considerations :
   a)	Implementation must use Spark RDD for transformation logic. DataFrame API is allowed only for reading and writing Parquet.
   b)	Use reusable design patterns so logic can adapt to other table specs.
@@ -77,8 +76,7 @@ Design Considerations :
   g)	Job’s output path can be changed and the output shall save in parquet.
   h) 	Unit test and integration tests shall be included and can be run in local development environment.
 
-3. RUNTIME CONFIGURABILITY
-===========================
+# 3. RUNTIME CONFIGURABILITY
 
 Five parameters are configurable at runtime via CLI arguments:
 
@@ -105,8 +103,7 @@ Environment configuration:
     because Python reads PYTHONPATH only at interpreter startup.
 
 
-4. HOW TO RUN
-=============
+# 4. HOW TO RUN
 
 4.1 Prerequisites
 -----------------
@@ -201,8 +198,7 @@ Environment configuration:
           test asserting task1 and task2 produce identical output sets
           (since salting must not change final results).
 
-5. Program Flow
-=================
+# 5. Program Flow
 
 ```
 CLI (main.py)
@@ -232,8 +228,7 @@ b) Chain of Responsibilities Pattern (sequential stages),
 c) Factory Pattern, 
 d) Broadcast Join Pattern (shuffle-free enrichment)
 
-6. Pipeline Stages
-=================
+# 6. Pipeline Stages
 
 | Stage | Transform | Operation | Shuffles | Purpose |
 |-------|-----------|-----------|----------|---------|
@@ -244,8 +239,7 @@ d) Broadcast Join Pattern (shuffle-free enrichment)
 
 **Total: 3 shuffle stages** (near-optimal). Tie-breaking in ranking uses alphabetical order for deterministic results.
 
-7. Data Schemas
-=================
+# 7. Data Schemas
 ### Input: Dataset A (Detections) — Parquet, ~1M rows
 
 | Field | Type | Description |
@@ -274,8 +268,7 @@ d) Broadcast Join Pattern (shuffle-free enrichment)
 
 Output is written to a date-stamped subfolder, e.g. `data/output/{run_time_date}}/`.
 
-8. SHUFFLE ANALYSIS
-===================
+# 8. SHUFFLE ANALYSIS
 
 Total shuffle stages: 3
 
@@ -292,8 +285,7 @@ Overall: 3 shuffles is near-optimal for this pipeline. The first two benefit
 from map-side combiners (reduceByKey), and the third operates on a much
 smaller dataset after aggregation.
 
-9. POTENTIAL FUTURE IMPROVEMENTS
-==================================
+# 9. POTENTIAL FUTURE IMPROVEMENTS
 
 If data volumes grow significantly beyond 1M rows:
 
@@ -324,8 +316,7 @@ If data volumes grow significantly beyond 1M rows:
      validation, plus a real-fixtures smoke test on `data/input/`.
 
 
-10. SUMMARY
-============
+# 10. SUMMARY
 
 The implemented pipeline achieves:
   - Full RDD-based transformation logic (DataFrame only for parquet I/O)
