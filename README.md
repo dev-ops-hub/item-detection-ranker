@@ -163,7 +163,7 @@ Environment configuration:
     `AttributeError: Can't get attribute 'TimeType'`).
 
   From repository root (PowerShell):
-
+```
     $env:PYTHONPATH=(Resolve-Path .\src).Path
     $env:PYSPARK_PYTHON=(Resolve-Path .\.venv\Scripts\python.exe).Path
     $env:PYSPARK_DRIVER_PYTHON=$env:PYSPARK_PYTHON
