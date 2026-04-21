@@ -66,14 +66,14 @@ concerns:
                                       (parametrized for task1 + task2)
 
 ```
-Design Considerations :
-    a)	Implementation must use Spark RDD for transformation logic. DataFrame API is allowed only for reading and writing Parquet.
-    b)	Use reusable design patterns so logic can adapt to other table specs.
-    c)	Code must pass flake8 style checks and follow clean code practices.
-    d)	Consider time and space complexity, minimize shuffle stages and avoid explicit .join if possible.
-    e)	Dataset A contains duplicate detection_oid values. Each detection_oid must count once only.
-    f)	Job’s input path for Dataset A & B, and Top X value are configurable and able to change
-    g)	Job’s output path can be changed and the output shall save in parquet.
+Design Considerations :  
+    a)	Implementation must use Spark RDD for transformation logic. DataFrame API is allowed only for reading and writing Parquet.  
+    b)	Use reusable design patterns so logic can adapt to other table specs.  
+    c)	Code must pass flake8 style checks and follow clean code practices.  
+    d)	Consider time and space complexity, minimize shuffle stages and avoid explicit .join if possible.  
+    e)	Dataset A contains duplicate detection_oid values. Each detection_oid must count once only.  
+    f)	Job’s input path for Dataset A & B, and Top X value are configurable and able to change.  
+    g)	Job’s output path can be changed and the output shall save in parquet.  
     h) 	Unit test and integration tests shall be included and can be run in local development environment.
 
 # 3. RUNTIME CONFIGURABILITY
@@ -222,14 +222,11 @@ CLI (main.py)
      └─ Write results                 ── RDDIOFactory ── ParquetRDDWriter
 ```
 
-**Key patterns:** 
-  a) Strategy Pattern (swappable transforms), 
-  
-  b) Chain of Responsibilities Pattern (sequential stages), 
-  
-  c) Factory Pattern, 
-  
-  d) Broadcast Join Pattern (shuffle-free enrichment)
+**Key patterns:**  
+  a) Strategy Pattern (swappable transforms),  
+  b) Chain of Responsibilities Pattern (sequential stages),   
+  c) Factory Pattern,   
+  d) Broadcast Join Pattern (shuffle-free enrichment)  
 
 # 6. Pipeline Stages
 
@@ -290,29 +287,22 @@ smaller dataset after aggregation.
 
 # 9. POTENTIAL FUTURE IMPROVEMENTS
 
-If data volumes grow significantly beyond 1M rows:
-
+If data volumes grow significantly beyond 1M rows:  
   a) Replace groupByKey in ranking with a combineByKey / aggregateByKey
      approach that maintains a bounded top-K heap per partition, avoiding
-     materializing all items per group in memory.
-
+     materializing all items per group in memory.  
   b) Add data quality checks (null detection_oid, null item_name) with
-     configurable handling policies (drop, default, fail).
-
+     configurable handling policies (drop, default, fail).  
   c) Add pipeline metrics/logging: row counts before and after each
-     transform stage, execution time per stage.
-
+     transform stage, execution time per stage.  
   d) Partition output by geographical_location_oid for efficient
-     downstream queries.
-
+     downstream queries.  
   e) Consider pre-partitioning the detections RDD by geo_oid to co-locate
      data for aggregation and ranking, potentially reducing shuffle volume
-     if key distribution allows.
-
+     if key distribution allows.  
   f) (Implemented) Unit tests for each transform class are in
      `tests/unit/transforms/`, using a shared session-scoped SparkSession
-     fixture with `local[2]` mode (see `tests/conftest.py`).
-
+     fixture with `local[2]` mode (see `tests/conftest.py`).  
   g) (Implemented) Integration tests for both `task1_etl_job` and
      `task2_etl_job` (incl. the salted-aggregation skew path) are in
      `tests/integration/`, with parquet I/O and `OUTPUT_SCHEMA`
