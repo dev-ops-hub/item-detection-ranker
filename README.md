@@ -197,7 +197,7 @@ Environment configuration:
           over `task1_etl_job` and `task2_etl_job`, plus an equivalence
           test asserting task1 and task2 produce identical output sets
           (since salting must not change final results).
-
+```
 # 5. Program Flow
 
 ```
