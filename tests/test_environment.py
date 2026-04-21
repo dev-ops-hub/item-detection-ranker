@@ -12,7 +12,7 @@ def test_load_project_env_reads_dotenv_file(tmp_path, monkeypatch):
     assert get_log_level() == "DEBUG"
 
 
-def test_load_project_env_does_not_override_existing_env(tmp_path, monkeypatch):
+def test_load_env_does_not_override_existing(tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
     env_file.write_text("LOG_LEVEL=ERROR\n", encoding="utf-8")
     monkeypatch.setenv("LOG_LEVEL", "WARNING")

@@ -1,6 +1,15 @@
-from .reader_rdd import CSVRDDReader, JSONRDDReader, ParquetRDDReader, TextRDDReader
-from .writer_rdd import CSVRDDWriter, JSONRDDWriter, ParquetRDDWriter, TextRDDWriter
-from typing import Any
+from .reader_rdd import (
+    CSVRDDReader,
+    JSONRDDReader,
+    ParquetRDDReader,
+    TextRDDReader,
+)
+from .writer_rdd import (
+    CSVRDDWriter,
+    JSONRDDWriter,
+    ParquetRDDWriter,
+    TextRDDWriter,
+)
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType
 from pyspark import RDD
@@ -28,16 +37,21 @@ class RDDIOFactory:
     }
 
     @staticmethod
-    def read_rdd(sc : SparkSession, file_type: str, path: str):
+    def read_rdd(sc: SparkSession, file_type: str, path: str):
         reader = RDDIOFactory._readers.get(file_type.lower())
         if not reader:
             raise ValueError(f"Unsupported format: {file_type}")
-        
+
         return reader.read(sc, path)
-    
 
     @staticmethod
-    def write_rdd(sc: SparkSession, rdd: RDD, file_type: str, path: str, schema: StructType):
+    def write_rdd(
+        sc: SparkSession,
+        rdd: RDD,
+        file_type: str,
+        path: str,
+        schema: StructType,
+    ):
         writer = RDDIOFactory._writers.get(file_type.lower())
         if not writer:
             raise ValueError(f"Unsupported format: {file_type}")

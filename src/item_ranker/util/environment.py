@@ -3,6 +3,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+
 def load_project_env(env_path=None):
     if env_path is None:
         env_path = Path(__file__).resolve().parents[3] / ".env"

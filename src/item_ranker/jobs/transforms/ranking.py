@@ -1,6 +1,7 @@
 
 from item_ranker.jobs.transforms.base import RDDTransformation
 
+
 class RankingTransform(RDDTransformation):
     """Rank items within each group and keep the top X.
 
@@ -22,8 +23,8 @@ class RankingTransform(RDDTransformation):
     def execute(self, rdd):
         """Rank and filter top X items per group."""
         top_x = self._top_x
-        #kv[0][0] = geo_oid, kv[0][1]=item_name, kv[1]=count from aggregation where key is geo_oid
-        #Ater groupbykey and flatten, the group becomes (geo_oid, [(item_name_1, count_1), (item_name_2, count_2), ...])
+        # kv => ((geo_oid, item_name), count) from prior aggregation.
+        # groupByKey yields (geo_oid, [(item_name_1, count_1), ...]).
         return (
             rdd
             .map(lambda kv: (kv[0][0], (kv[0][1], kv[1])))
@@ -37,5 +38,8 @@ class RankingTransform(RDDTransformation):
         sorted_items = sorted(items, key=lambda x: (-x[1], x[0]))
         return [
             (group_key, rank, item_name)
-            for rank, (item_name, no_of_counts) in enumerate(sorted_items[:top_x], start=1)
+            for rank, (item_name, num_of_occurence) in enumerate(
+                sorted_items[:top_x],
+                start=1,
+            )
         ]

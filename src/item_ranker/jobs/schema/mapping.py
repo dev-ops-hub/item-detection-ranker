@@ -1,10 +1,15 @@
 from pyspark.sql.types import (
-    IntegerType, LongType, StringType, StructField, StructType,
+    IntegerType,
+    LongType,
+    StringType,
+    StructField,
+    StructType,
 )
 
 
 # # Column indices for Dataset A (detections parquet)
-# # (geographical_location_oid, video_camera_oid, detection_oid, item_name, timestamp_detected)
+# # (geographical_location_oid, video_camera_oid, detection_oid,
+# #  item_name, timestamp_detected)
 
 # DATASETA_GEOLOC_INDEX = 0
 # DATASETA_VIDEOCAM_INDEX = 1

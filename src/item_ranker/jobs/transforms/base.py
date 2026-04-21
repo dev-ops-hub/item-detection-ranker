@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from pyspark import RDD
 
+
 class RDDTransformation(ABC):
     """Abstract base class for RDD transformations.
 
@@ -10,6 +11,6 @@ class RDDTransformation(ABC):
     """
 
     @abstractmethod
-    def execute(self, rdd:RDD):
+    def execute(self, rdd: RDD):
         """Apply the transformation to an RDD and return a new RDD."""
         raise NotImplementedError

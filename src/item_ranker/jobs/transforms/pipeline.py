@@ -1,5 +1,6 @@
 from item_ranker.jobs.transforms.base import RDDTransformation
 
+
 class TransformationPipeline:
     """Orchestrates a sequence of RDD transformations.
 

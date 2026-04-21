@@ -2,6 +2,7 @@ from operator import add
 
 from item_ranker.jobs.transforms.base import RDDTransformation
 
+
 class AggregatorTransform(RDDTransformation):
     """Count occurrences per composite key.
 

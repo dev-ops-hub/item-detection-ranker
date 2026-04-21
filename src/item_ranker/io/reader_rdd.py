@@ -1,10 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Any
 
 from pyspark.sql import SparkSession
 from pyspark import RDD
-
-import json
 
 
 class RDDReader(ABC):
@@ -15,24 +12,26 @@ class RDDReader(ABC):
 
 # --- Concrete Implementations ---
 
+
 class TextRDDReader(RDDReader):
     def read(self, sc, path):
         """Read a parquet file and return its contents as an RDD of text."""
         return sc.read.text(path).rdd
-        
+
+
 class CSVRDDReader(RDDReader):
-    def read(self, sc, path) :
+    def read(self, sc, path):
         """Read a csv file and return its contents as an RDD of tuples."""
-        return sc.read.csv(path, header = True).rdd
-        
+        return sc.read.csv(path, header=True).rdd
+
+
 class JSONRDDReader(RDDReader):
     def read(self, sc, path):
         """Read a json file and return its contents as an RDD of tuples."""
         return sc.read.json(path).rdd
-    
+
+
 class ParquetRDDReader(RDDReader):
     def read(self, sc, path):
         """Read a parquet file and return its contents as an RDD of tuples."""
-        return  sc.read.parquet(path).rdd
-
-       
+        return sc.read.parquet(path).rdd

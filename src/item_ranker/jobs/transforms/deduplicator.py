@@ -1,5 +1,6 @@
 from item_ranker.jobs.transforms.base import RDDTransformation
 
+
 class DeduplicatorTransform(RDDTransformation):
     """Deduplicate rows by a specified key index.
 
