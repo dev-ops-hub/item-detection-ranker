@@ -1,0 +1,23 @@
+[project]
+name = "item-detection-ranker"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "flake8>=6.0",
+    "python-dotenv>=1.0.1",
+    "psutil>=7.0",
+    "pyspark>=3.5.0",
+    "pytest>=7.0",
+    "dotenv>=0.9.9",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests using real ~1M-row fixtures",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
