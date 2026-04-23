@@ -105,6 +105,124 @@ Environment configuration:
 
 # 4. HOW TO RUN
 
+4.0 Environment Setup
+---------------------
+Follow these steps once before running the project for the first time.
+
+  ### Step 1 — Install Java 21
+
+  PySpark requires Java 21 on the PATH.
+
+  **macOS (Homebrew):**
+
+    brew install openjdk@21
+    # Add to shell profile (~/.zshrc or ~/.bash_profile):
+    export JAVA_HOME=$(/usr/libexec/java_home -v 21)
+    export PATH=$JAVA_HOME/bin:$PATH
+
+  **Windows:**
+    1. Download the OpenJDK 21 MSI from https://adoptium.net
+    2. Run the installer (tick "Set JAVA_HOME variable" and "Add to PATH").
+    3. Verify in a new terminal:
+         java -version
+
+  ---
+
+  ### Step 2 — Install Python 3.11
+
+  The project pins Python = 3.11 (see `.python-version`).
+
+  **macOS (pyenv recommended):**
+
+    brew install pyenv
+    pyenv install 3.11
+    pyenv local 3.11          # writes .python-version at repo root
+
+  **Windows:**
+    Download the Python 3.11 installer from https://python.org/downloads
+    and tick "Add Python to PATH" during installation.
+
+  ---
+
+  ### Step 3 — Install uv (package / venv manager)
+
+  **macOS/Linux:**
+
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    # Restart your terminal or run:
+    source $HOME/.cargo/env
+
+  **Windows (PowerShell):**
+
+    powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+  ---
+
+  ### Step 4 — Create the virtual environment and install dependencies
+
+  `uv sync` will automatically create `.venv/` pinned to Python 3.11 (from
+  `.python-version`). If `uv` cannot find Python 3.11 on your machine it
+  will download and install it automatically.
+
+  If you prefer to create the venv manually first, run:
+
+  **macOS/Linux:**
+
+    # Create venv explicitly with Python 3.11 (if uv does not auto-resolve)
+    uv venv --python 3.11 .venv
+
+    # Then install all dependencies
+    uv sync
+
+  **Windows (PowerShell):**
+
+    # Create venv explicitly with Python 3.11 (if uv does not auto-resolve)
+    uv venv --python 3.11 .venv
+
+    # Then install all dependencies
+    uv sync
+
+  If you do not have `uv` and prefer plain Python tooling:
+
+  **macOS/Linux:**
+
+    python3.11 -m venv .venv
+    .venv/bin/pip install -r requirements.txt
+
+  **Windows (PowerShell):**
+
+    py -3.11 -m venv .venv
+    .\.venv\Scripts\pip.exe install -r requirements.txt
+
+  All approaches create `.venv/` at the repo root and install all packages
+  listed in `requirements.txt` (pyspark, pytest, flake8, python-dotenv, …).
+
+  ---
+
+  ### Step 5 — Create the .env file
+
+  Copy the example below and save it as `.env` at the repository root:
+
+    LOG_LEVEL=INFO
+
+  Available log levels: DEBUG, INFO, WARN, ERROR, CRITICAL.
+
+  ---
+
+  ### Step 6 — Verify the setup
+
+  **macOS/Linux:**
+
+    export PYTHONPATH=$(pwd)/src
+    .venv/bin/python -c "import pyspark; print(pyspark.__version__)"
+
+  **Windows (PowerShell):**
+
+    $env:PYTHONPATH=(Resolve-Path .\src).Path
+    .\.venv\Scripts\python.exe -c "import pyspark; print(pyspark.__version__)"
+
+  Expected output: `4.0.2`
+
 4.1 Prerequisites
 -----------------
   - Python = 3.11
@@ -115,9 +233,27 @@ Environment configuration:
 
 4.2 Python Module Run (recommended for local dev)
 --------------------------------------------------
+Note: Replace "output" with the {jobname} if you want to partition the output
+      based on the job run   
+
+  From repository root (Command Prompt):
+
+    set PYTHONPATH=%CD%\src
+    set PYSPARK_PYTHON=%CD%\.venv\Scripts\python.exe
+    set PYSPARK_DRIVER_PYTHON=%PYSPARK_PYTHON%
+
+    .venv\Scripts\python.exe -m item_ranker.main ^
+      --job task1_etl_job ^
+      --dataset_a_path data/input/datasetA.parquet ^
+      --dataset_b_path data/input/datasetB.parquet ^
+      --output_path data/output/output.parquet ^
+      --top-x 10
+
   From repository root (PowerShell):
 
     $env:PYTHONPATH=(Resolve-Path .\src).Path
+    $env:PYSPARK_PYTHON=(Resolve-Path .\.venv\Scripts\python.exe).Path
+    $env:PYSPARK_DRIVER_PYTHON=$env:PYSPARK_PYTHON
     .\.venv\Scripts\python.exe -m item_ranker.main `
       --job task1_etl_job `
       --dataset_a_path data/input/datasetA.parquet `
@@ -125,8 +261,34 @@ Environment configuration:
       --output_path data/output/output.parquet `
       --top-x 10
 
+  From repository root (macOS/Linux — bash/zsh):
+
+    export PYTHONPATH=$(pwd)/src
+    export PYSPARK_PYTHON=$(pwd)/.venv/bin/python
+    export PYSPARK_DRIVER_PYTHON=$PYSPARK_PYTHON
+    .venv/bin/python -m item_ranker.main \
+      --job task1_etl_job \
+      --dataset_a_path data/input/datasetA.parquet \
+      --dataset_b_path data/input/datasetB.parquet \
+      --output_path data/output/output.parquet \
+      --top-x 10
+
 4.3 spark-submit Run
 --------------------
+  
+  From repository root (Command Prompt):
+
+    set PYTHONPATH=%CD%\src
+    set PYSPARK_PYTHON=%CD%\.venv\Scripts\python.exe
+    set PYSPARK_DRIVER_PYTHON=%PYSPARK_PYTHON%
+
+    spark-submit --master local[*] src/item_ranker/main.py ^
+      --job task1_etl_job ^
+      --dataset_a_path data/input/datasetA.parquet ^
+      --dataset_b_path data/input/datasetB.parquet ^
+      --output_path data/output/output.parquet ^
+      --top-x 10
+  
   From repository root (PowerShell):
 
     $env:PYTHONPATH=(Resolve-Path .\src).Path
@@ -138,6 +300,19 @@ Environment configuration:
       --dataset_a_path data/input/datasetA.parquet `
       --dataset_b_path data/input/datasetB.parquet `
       --output_path data/output/output.parquet `
+      --top-x 10
+
+  From repository root (macOS/Linux — bash/zsh):
+
+    export PYTHONPATH=$(pwd)/src
+    export PYSPARK_PYTHON=$(pwd)/.venv/bin/python
+    export PYSPARK_DRIVER_PYTHON=$PYSPARK_PYTHON
+
+    spark-submit --master local[*] src/item_ranker/main.py \
+      --job task1_etl_job \
+      --dataset_a_path data/input/datasetA.parquet \
+      --dataset_b_path data/input/datasetB.parquet \
+      --output_path data/output/output.parquet \
       --top-x 10
 
   Rationale to set PYSPARK_PYTHON and PYSPARK_DRIVER_PYTHON:
@@ -161,6 +336,27 @@ Environment configuration:
     that Spark workers use the venv-installed pyspark instead of any
     older bundled distribution (which can otherwise cause
     `AttributeError: Can't get attribute 'TimeType'`).
+
+  From repository root (macOS/Linux — bash/zsh):
+```
+    export PYTHONPATH=$(pwd)/src
+    export PYSPARK_PYTHON=$(pwd)/.venv/bin/python
+    export PYSPARK_DRIVER_PYTHON=$PYSPARK_PYTHON
+    unset SPARK_HOME
+
+    # Fast suite (unit + synthetic-data integration). Excludes the
+    # real-fixtures smoke test marked @pytest.mark.slow.
+    .venv/bin/python -m pytest -m "not slow"
+
+    # Full suite — also runs integration tests against the real
+    # data/input/dataset{A,B}.parquet fixtures for task1 AND task2,
+    # plus a cross-job equivalence check (task1 ≡ task2 output).
+    .venv/bin/python -m pytest
+
+    # Run a single test or directory:
+    .venv/bin/python -m pytest tests/unit -v
+    .venv/bin/python -m pytest tests/integration/test_task2_etl_job.py -v
+```
 
   From repository root (PowerShell):
 ```
