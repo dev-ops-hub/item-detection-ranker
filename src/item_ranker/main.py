@@ -24,8 +24,6 @@ from item_ranker.config import PipelineConfig
 
 def parse_args(args=None):
     """Parse command-line arguments for pipeline configuration."""
-    LogManager.configure(get_log_level())
-
     parser = argparse.ArgumentParser(
         description="Compute top X detected items per geographical location."
     )
@@ -127,6 +125,7 @@ def main(args=None):
     """
     is_env_loaded = load_project_env()
     parsed = parse_args(args)
+    LogManager.configure(get_log_level())
     logger = LogManager.get_logger("item-detection-ranker")
     logger.info("Environment variables .env file loaded : %s", is_env_loaded)
     logger.info("Starting item detection ranker job=%s", parsed.job)
@@ -151,11 +150,6 @@ def main(args=None):
                 "spark.serializer",
                 "org.apache.spark.serializer.KryoSerializer",
             )
-            # The two lines below pin driver/worker Python to the current
-            # interpreter. Enable them if you see PySpark worker mismatches
-            # on Windows or inside isolated venvs.
-            # .config("spark.pyspark.python", sys.executable)
-            # .config("spark.pyspark.driver.python", sys.executable)
             .getOrCreate()
         )
         logger.info("Spark session created: %s", spark.sparkContext.appName)

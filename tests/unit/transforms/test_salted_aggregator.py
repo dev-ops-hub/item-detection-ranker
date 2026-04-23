@@ -10,7 +10,7 @@ from item_ranker.jobs.transforms.salted_aggregator import (
 
 
 def test_salted_aggregator_matches_plain_counts(spark):
-    """Salting must not change the final counts -- only how they're shuffled."""
+    """Salting must not change final counts, only shuffle layout."""
     rows = [
         (1, 10, 100, "apple", 1),
         (1, 10, 101, "apple", 1),

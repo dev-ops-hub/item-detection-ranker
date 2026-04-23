@@ -1,10 +1,7 @@
 """Unit tests for `item_ranker.main`'s argparse layer and job loader."""
-import os
-import sys
 
 import pytest
 
-import item_ranker.main as main_module
 from item_ranker.main import load_job_module, parse_args
 
 

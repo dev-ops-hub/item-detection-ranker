@@ -7,7 +7,7 @@ from pyspark import RDD
 from pyspark.sql import SparkSession
 
 
-def broadcast_dataset_b(spark: SparkSession, dataset_b_rdd: RDD):
+def broadcast_helper(spark: SparkSession, dataset_b_rdd: RDD):
     """Collect a small lookup RDD into a dict and broadcast it.
 
     Args:

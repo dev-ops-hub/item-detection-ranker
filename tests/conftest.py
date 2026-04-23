@@ -4,7 +4,7 @@ Responsibilities:
     * Make ``src/`` importable so tests can ``import item_ranker`` without
       installing the package.
     * Pin PySpark driver/worker Python to the current interpreter to avoid
-      Windows venv mismatch issues.
+      venv mismatch issues.
     * Strip ``SPARK_HOME`` and ``PYTHONSTARTUP`` so workers always use the
       pyspark module shipped with the venv (not a system-wide install).
     * Provide a session-scoped local `SparkSession` fixture configured for
@@ -19,6 +19,16 @@ import pytest
 SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
+
+# PySpark Python workers are separate processes; they don't inherit the
+# driver's ``sys.path`` modifications. Propagate ``src/`` via PYTHONPATH so
+# workers can import ``item_ranker`` when unpickling closures.
+_existing_pythonpath = os.environ.get("PYTHONPATH", "")
+if str(SOURCE_ROOT) not in _existing_pythonpath.split(os.pathsep):
+    os.environ["PYTHONPATH"] = (
+        f"{SOURCE_ROOT}{os.pathsep}{_existing_pythonpath}"
+        if _existing_pythonpath else str(SOURCE_ROOT)
+    )
 
 # Ensure Spark driver/workers use the same interpreter (Windows venv safety).
 os.environ["PYSPARK_PYTHON"] = sys.executable

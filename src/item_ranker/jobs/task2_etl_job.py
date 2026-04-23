@@ -15,53 +15,22 @@ tests in ``tests/integration/test_with_real_fixtures.py``).
 """
 import math
 
-from pyspark import RDD
 from pyspark.sql import SparkSession
 
 from item_ranker.util import LogManager
 from item_ranker.config import PipelineConfig
 from item_ranker.io.factory_rdd import PARQUET_FORMAT, RDDIOFactory
-from item_ranker.jobs._shared import broadcast_dataset_b
+from item_ranker.util.broadcast_helper import broadcast_helper
 from item_ranker.jobs.schema.mapping import DATASETA_SCHEMA, OUTPUT_SCHEMA
 from item_ranker.jobs.transforms.pipeline import TransformationPipeline
 from item_ranker.jobs.transforms.deduplicator import DeduplicatorTransform
 from item_ranker.jobs.transforms.aggregator import AggregatorTransform
 from item_ranker.jobs.transforms.ranking import RankingTransform
 from item_ranker.jobs.transforms.enricher import EnricherTransform
-from item_ranker.jobs.transforms.salted_aggregator import SaltedAggregatorTransform
-
-
-# Above this max/avg partition-size ratio we consider the RDD skewed
-# enough that the salted two-phase aggregator is worth its overhead.
-SKEW_RATIO_THRESHOLD = 1.5
-
-
-def check_data_skew(rdd: RDD):
-    """Check whether an RDD exhibits data skew across its partitions.
-
-    Computes the number of records in each partition and calculates a
-    skew factor as ``max_partition_size / avg_partition_size``. A skew
-    factor greater than ``SKEW_RATIO_THRESHOLD`` is treated as skewed.
-
-    Args:
-        rdd: The input RDD to evaluate for data skew.
-
-    Returns:
-        A tuple ``(is_skewed, skew_factor)`` where:
-            * ``is_skewed`` (bool) - True if
-              ``skew_factor > SKEW_RATIO_THRESHOLD``.
-            * ``skew_factor`` (float) - Ratio of max partition size to
-              average partition size, or ``0.0`` if the RDD has no
-              partitions.
-    """
-    # Count rows locally inside each partition without shuffling.
-    counts = rdd.mapPartitions(lambda it: [sum(1 for _ in it)]).collect()
-    if not counts:
-        return False, 0.0
-
-    avg_val = sum(counts) / len(counts)
-    skew_factor = max(counts) / avg_val if avg_val > 0 else 0.0
-    return skew_factor > SKEW_RATIO_THRESHOLD, skew_factor
+from item_ranker.jobs.transforms.salted_aggregator import (
+    SaltedAggregatorTransform,
+)
+from item_ranker.jobs.quality.skew_validator import DataSkewValidator
 
 
 def run(spark: SparkSession, config: PipelineConfig):
@@ -90,7 +59,9 @@ def run(spark: SparkSession, config: PipelineConfig):
 
     # Inspect partition distribution to decide between plain and salted
     # aggregation. This runs one lightweight mapPartitions + collect.
-    is_data_skew, skew_factor = check_data_skew(dataset_a_rdd)
+    is_data_skew, skew_factor = DataSkewValidator.check_data_skew(
+        dataset_a_rdd
+    )
 
     logger.info("Skew Factor %.2f, Skew Data [T/F] %s",
                 skew_factor, is_data_skew)
@@ -99,7 +70,7 @@ def run(spark: SparkSession, config: PipelineConfig):
 
     # Broadcast Dataset B (~10K rows) as a {geo_oid: geo_location} dict
     # so enrichment is a map-side join (no shuffle).
-    dataset_b_broadcast = broadcast_dataset_b(spark, dataset_b_rdd)
+    dataset_b_broadcast = broadcast_helper(spark, dataset_b_rdd)
 
     # Resolve field indices by name for robustness against schema edits.
     geo_oid_idx = DATASETA_SCHEMA.fieldNames().index(

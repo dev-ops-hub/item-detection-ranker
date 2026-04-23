@@ -6,7 +6,6 @@ variables are *not* overridden, so CLI/CI overrides always win over the
 .env defaults.
 """
 import os
-from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -16,8 +15,8 @@ def load_project_env(env_path=None):
 
     Args:
         env_path: Optional explicit path to a ``.env`` file. When
-            omitted, defaults to ``<repo_root>/.env`` (three levels
-            above this file).
+            omitted, defaults to ``.env`` in the current working
+            directory.
 
     Returns:
         bool: ``True`` if the file was found and loaded, ``False`` if
@@ -25,20 +24,12 @@ def load_project_env(env_path=None):
         environments where configuration is supplied entirely via the
         process environment).
     """
-    if env_path is None:
-        # __file__ -> .../src/item_ranker/util/environment.py
-        # parents[3] -> repo root.
-        env_path = Path(__file__).resolve().parents[3] / ".env"
-
-    env_file = Path(env_path)
-    if not env_file.exists():
-        return False
 
     # ``override=False`` ensures any pre-existing environment variable
     # (from CI, the shell, or a test fixture) takes precedence over the
     # value declared in the .env file.
-    load_dotenv(env_file, override=False)
-    return True
+    dotenv_path = env_path or ".env"
+    return load_dotenv(dotenv_path=dotenv_path, override=False)
 
 
 def get_log_level(default="INFO"):

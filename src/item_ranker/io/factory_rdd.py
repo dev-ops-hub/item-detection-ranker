@@ -60,7 +60,8 @@ class RDDIOFactory:
 
         Args:
             sc: Active SparkSession.
-            file_type: Format identifier (case-insensitive), e.g. ``"parquet"``.
+            file_type: Format identifier (case-insensitive), for
+                example ``"parquet"``.
             path: Input path to read from.
 
         Returns:
@@ -83,10 +84,11 @@ class RDDIOFactory:
         path: str,
         schema: StructType,
     ):
-        """Write ``rdd`` to ``path`` using the registered writer for ``file_type``.
+        """Write ``rdd`` to ``path`` using the registered writer.
 
         Args:
-            sc: Active SparkSession (used to build a DataFrame with ``schema``).
+            sc: Active SparkSession used to build a DataFrame with
+                ``schema``.
             rdd: RDD of tuples matching ``schema``.
             file_type: Format identifier (case-insensitive).
             path: Base output path; writers insert a run-date subdirectory.

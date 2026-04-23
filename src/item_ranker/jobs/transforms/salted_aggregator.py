@@ -36,7 +36,9 @@ class SaltedAggregatorTransform(RDDTransformation):
         salted = (
             rdd
             .map(lambda row: (
-                tuple(row[i] for i in indices) + (random.randint(0, num_salts - 1),),
+                tuple(row[i] for i in indices) + (
+                    random.randint(0, num_salts - 1),
+                ),
                 1,
             ))
             .reduceByKey(add)

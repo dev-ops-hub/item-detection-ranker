@@ -37,6 +37,8 @@ concerns:
   │   ├─ task1_etl_job.py         ETL job (baseline pipeline)
   │   ├─ task2_etl_job.py         ETL job with data-skew detection +
   │   │                            salted aggregation when skew detected
+  │   ├─ quality/
+  │   │   └─ skew_validator.py    Partition-skew detection helper for task2
   │   ├─ schema/
   │   │   └─ mapping.py           StructType schemas for input/output datasets
   │   └─ transforms/
@@ -55,8 +57,13 @@ concerns:
   ├─ conftest.py                  Session-scoped local SparkSession fixture
   ├─ test_environment.py          .env loader unit tests
   ├─ test_log_manager.py          LogManager unit tests
-  ├─ unit/                        Unit tests (config, CLI, schema, IO,
-  │   │                            writer-path, skew detection)
+  ├─ unit/
+  │   ├─ test_config.py           PipelineConfig unit tests
+  │   ├─ test_io_factory.py       RDDIOFactory unit tests
+  │   ├─ test_main_cli.py         CLI parsing + job-loader unit tests
+  │   ├─ test_schema_mapping.py   Schema contract unit tests
+  │   ├─ test_skew_check.py       Skew-detection unit tests
+  │   ├─ test_writer_dated_path.py Dated-output-path writer tests
   │   └─ transforms/              One file per transform class
   └─ integration/                 End-to-end pipeline tests on local Spark
       ├─ test_task1_etl_job.py    Synthetic-data full pipeline (task1)

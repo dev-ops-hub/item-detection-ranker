@@ -14,7 +14,7 @@ heavy key skew, use ``task2_etl_job`` which swaps in a salted aggregator.
 from item_ranker.util import LogManager
 from item_ranker.config import PipelineConfig
 from item_ranker.io.factory_rdd import PARQUET_FORMAT, RDDIOFactory
-from item_ranker.jobs._shared import broadcast_dataset_b
+from item_ranker.util.broadcast_helper import broadcast_helper
 from item_ranker.jobs.schema.mapping import DATASETA_SCHEMA, OUTPUT_SCHEMA
 
 from item_ranker.jobs.transforms.pipeline import TransformationPipeline
@@ -51,7 +51,7 @@ def run(spark, config: PipelineConfig):
 
     # Broadcast Dataset B as a {geo_oid: geo_location} dict so the
     # enrichment stage is a map-side join (no shuffle).
-    dataset_b_broadcast = broadcast_dataset_b(spark, dataset_b_rdd)
+    dataset_b_broadcast = broadcast_helper(spark, dataset_b_rdd)
 
     # Resolve field positions from the schemas rather than hard-coding
     # magic numbers. Keeps the pipeline robust to schema reordering.

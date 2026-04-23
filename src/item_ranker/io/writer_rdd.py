@@ -113,7 +113,7 @@ class JSONRDDWriter(RDDWriter):
 
 class ParquetRDDWriter(RDDWriter):
     def write(self, sc, rdd, path, schema):
-        """Convert RDD to DataFrame and write parquet under a run-date folder."""
+        """Convert RDD to DataFrame and write parquet under a dated path."""
 
         filepath = self._dated_output_path(path)
         df = sc.createDataFrame(rdd, schema=schema)
