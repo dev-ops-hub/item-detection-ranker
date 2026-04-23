@@ -111,7 +111,7 @@ def main(args=None):
         elapsed_time = time.time() - start_time
         logger.info(
             "Pipeline completed in %.2f seconds", elapsed_time)
-        
+
     except Exception:
         error_stack = traceback.format_exc()
         logger.fatal("FATAL: Job '%s' failed execution.\n%s",

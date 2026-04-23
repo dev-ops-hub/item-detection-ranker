@@ -70,7 +70,7 @@ def run(spark, config: PipelineConfig):
     ])
     # run the transformation pipeline
     result_rdd = pipeline.run(dataset_a_rdd)
-
+ 
     # write the results to the output path
     RDDIOFactory.write_rdd(
         spark,
