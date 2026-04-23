@@ -1,12 +1,28 @@
+"""Skew-aware ETL job for the item-detection-ranker pipeline (Task 2).
+
+Functionally equivalent to ``task1_etl_job`` but inspects the input
+partition distribution at runtime:
+
+    * If ``max_partition_size / avg_partition_size > 1.5``, it swaps the
+      plain `AggregatorTransform` for `SaltedAggregatorTransform`, a
+      two-phase reduce that appends a random salt to hot keys to spread
+      them across partitions.
+    * Otherwise the job runs identically to Task 1.
+
+Salting only changes the shuffle distribution; the final ranked output
+is identical to Task 1's for any given input (verified by integration
+tests in ``tests/integration/test_with_real_fixtures.py``).
+"""
 import math
-from item_ranker.jobs.transforms import aggregator
+
+from pyspark import RDD
+from pyspark.sql import SparkSession
+
 from item_ranker.util import LogManager
 from item_ranker.config import PipelineConfig
 from item_ranker.io.factory_rdd import PARQUET_FORMAT, RDDIOFactory
+from item_ranker.jobs._shared import broadcast_dataset_b
 from item_ranker.jobs.schema.mapping import DATASETA_SCHEMA, OUTPUT_SCHEMA
-from pyspark import RDD
-from pyspark.sql import SparkSession 
-
 from item_ranker.jobs.transforms.pipeline import TransformationPipeline
 from item_ranker.jobs.transforms.deduplicator import DeduplicatorTransform
 from item_ranker.jobs.transforms.aggregator import AggregatorTransform
@@ -15,51 +31,49 @@ from item_ranker.jobs.transforms.enricher import EnricherTransform
 from item_ranker.jobs.transforms.salted_aggregator import SaltedAggregatorTransform
 
 
-def check_data_skew (rdd:RDD):
+# Above this max/avg partition-size ratio we consider the RDD skewed
+# enough that the salted two-phase aggregator is worth its overhead.
+SKEW_RATIO_THRESHOLD = 1.5
+
+
+def check_data_skew(rdd: RDD):
     """Check whether an RDD exhibits data skew across its partitions.
 
-    Computes the number of records in each partition and calculates a skew
-    factor as the ratio of the maximum partition size to the average partition
-    size. A skew factor greater than 1.5 is considered skewed.
+    Computes the number of records in each partition and calculates a
+    skew factor as ``max_partition_size / avg_partition_size``. A skew
+    factor greater than ``SKEW_RATIO_THRESHOLD`` is treated as skewed.
 
     Args:
         rdd: The input RDD to evaluate for data skew.
 
     Returns:
-        A tuple (is_skewed, skew_factor) where:
-            - is_skewed (bool): True if skew_factor > 1.5, False otherwise.
-            - skew_factor (float): Ratio of max partition size to average
-              partition size, or 0 if the RDD has no partitions.
+        A tuple ``(is_skewed, skew_factor)`` where:
+            * ``is_skewed`` (bool) - True if
+              ``skew_factor > SKEW_RATIO_THRESHOLD``.
+            * ``skew_factor`` (float) - Ratio of max partition size to
+              average partition size, or ``0.0`` if the RDD has no
+              partitions.
     """
+    # Count rows locally inside each partition without shuffling.
     counts = rdd.mapPartitions(lambda it: [sum(1 for _ in it)]).collect()
-    if counts:
-        max_val = max(counts)
-        avg_val = sum(counts)/len(counts)
-        skew_factor = max_val / avg_val if avg_val > 0 else 0
-        if skew_factor > 1.5:
-            return True, skew_factor
-        else:
-            return False, skew_factor
-    return False, 0
+    if not counts:
+        return False, 0.0
 
-def broadcast_dataset_b(spark: SparkSession, dataset_b_rdd:RDD):
-    """Collect locations RDD into a dict and broadcast it.
-
-    Args:
-        spark: SparkSession instance.
-        locations_rdd: RDD of
-            (geographical_location_oid, geographical_location).
-
-    Returns:
-        A Spark broadcast variable wrapping {geo_oid: geo_location} dict.
-    """
-    locations_dict = dict(
-        dataset_b_rdd.map(tuple).map(lambda row: (row[0], row[1])).collect()
-    )
-    return spark.sparkContext.broadcast(locations_dict)
+    avg_val = sum(counts) / len(counts)
+    skew_factor = max(counts) / avg_val if avg_val > 0 else 0.0
+    return skew_factor > SKEW_RATIO_THRESHOLD, skew_factor
 
 
 def run(spark: SparkSession, config: PipelineConfig):
+    """Execute the Task 2 ETL pipeline (skew-aware variant).
+
+    Selects `SaltedAggregatorTransform` when ``check_data_skew`` reports
+    skew; otherwise behaves exactly like Task 1.
+
+    Args:
+        spark: Active SparkSession.
+        config: Pipeline configuration with input/output paths and top_x.
+    """
     logger = LogManager.get_logger("task2_etl")
 
     dataset_a_rdd = RDDIOFactory.read_rdd(
@@ -73,30 +87,35 @@ def run(spark: SparkSession, config: PipelineConfig):
                 dataset_a_rdd.getNumPartitions())
     logger.info("Loaded dataset B with numPartitions=%s",
                 dataset_b_rdd.getNumPartitions())
-    
+
+    # Inspect partition distribution to decide between plain and salted
+    # aggregation. This runs one lightweight mapPartitions + collect.
     is_data_skew, skew_factor = check_data_skew(dataset_a_rdd)
 
-    logger.info("Skew Factor %d, Skew Data [T/F] %s", skew_factor, is_data_skew )
+    logger.info("Skew Factor %.2f, Skew Data [T/F] %s",
+                skew_factor, is_data_skew)
 
-     # ------ setting up and running the pipeline --------------
+    # ------ setting up and running the pipeline --------------
 
-    # dict {geo_oid: geo_location}
+    # Broadcast Dataset B (~10K rows) as a {geo_oid: geo_location} dict
+    # so enrichment is a map-side join (no shuffle).
     dataset_b_broadcast = broadcast_dataset_b(spark, dataset_b_rdd)
 
-    # get the indices of each field for Dataset A
+    # Resolve field indices by name for robustness against schema edits.
     geo_oid_idx = DATASETA_SCHEMA.fieldNames().index(
         "geographical_location_oid"
     )
     detection_idx = DATASETA_SCHEMA.fieldNames().index("detection_oid")
     item_name_idx = DATASETA_SCHEMA.fieldNames().index("item_name")
 
-    # get the indices of each field for Output
     geo_loc_idx = OUTPUT_SCHEMA.fieldNames().index("geographical_location")
 
     if is_data_skew:
+        # Pick num_salts proportional to the observed skew_factor so we
+        # only pay the two-phase cost when it meaningfully helps. Always
+        # use at least 2 salts to actually split the hot key.
         aggregation = SaltedAggregatorTransform(
             key_indices=(geo_oid_idx, item_name_idx),
-            # match the salt to the skew factor
             num_salts=max(2, math.ceil(skew_factor)),
         )
     else:
@@ -104,7 +123,7 @@ def run(spark: SparkSession, config: PipelineConfig):
             key_indices=(geo_oid_idx, item_name_idx),
         )
 
-    # configure the transformation pipeline
+    # Same overall pipeline as Task 1; only the aggregation stage differs.
     pipeline = TransformationPipeline([
         DeduplicatorTransform(key_index=detection_idx),
         aggregation,
@@ -115,10 +134,10 @@ def run(spark: SparkSession, config: PipelineConfig):
             insert_pos=geo_loc_idx
         ),
     ])
-    # run the transformation pipeline
+    # Run the transformation pipeline.
     result_rdd = pipeline.run(dataset_a_rdd)
 
-    # write the results to the output path
+    # Write the result to the output path (writer stamps the run date).
     RDDIOFactory.write_rdd(
         spark,
         result_rdd,
@@ -126,5 +145,3 @@ def run(spark: SparkSession, config: PipelineConfig):
         config.output_path,
         OUTPUT_SCHEMA,
     )
-
-  

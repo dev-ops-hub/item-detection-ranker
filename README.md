@@ -26,7 +26,7 @@ The project follows a src-layout architecture with clear separation of
 concerns:
 ```
   src/item_ranker/
-  ├─ main.py                      Entry point: CLI parsing, .env loading,
+  ├─ main.py                      Entry point: CLI parsing,
   │                                SparkSession, dynamic job module loading
   ├─ config.py                    Immutable PipelineConfig dataclass
   ├─ io/
@@ -99,8 +99,7 @@ Available jobs (passed via `--job`):
 Environment configuration:
   - Place a .env file at repo root with LOG_LEVEL=INFO (or DEBUG, etc.)
   - load_project_env() reads this at startup via python-dotenv.
-  - PYTHONPATH must be set in the shell before launch (not via .env)
-    because Python reads PYTHONPATH only at interpreter startup.
+
 
 
 # 4. HOW TO RUN
@@ -221,6 +220,11 @@ Follow these steps once before running the project for the first time.
     $env:PYTHONPATH=(Resolve-Path .\src).Path
     .\.venv\Scripts\python.exe -c "import pyspark; print(pyspark.__version__)"
 
+  **Windows (Command Prompt):**
+
+    set PYTHONPATH=%CD%\src
+    .venv\Scripts\python.exe -c "import pyspark; print(pyspark.__version__)"
+
   Expected output: `4.0.2`
 
 4.1 Prerequisites
@@ -275,14 +279,16 @@ Note: Replace "output" with the {jobname} if you want to partition the output
 
 4.3 spark-submit Run
 --------------------
-  
+  Note: `spark-submit` is installed inside the venv by PySpark and is NOT
+  a system command. Use the full path to the venv's spark-submit script.
+
   From repository root (Command Prompt):
 
     set PYTHONPATH=%CD%\src
     set PYSPARK_PYTHON=%CD%\.venv\Scripts\python.exe
     set PYSPARK_DRIVER_PYTHON=%PYSPARK_PYTHON%
 
-    spark-submit --master local[*] src/item_ranker/main.py ^
+    .venv\Scripts\spark-submit --master local[*] src/item_ranker/main.py ^
       --job task1_etl_job ^
       --dataset_a_path data/input/datasetA.parquet ^
       --dataset_b_path data/input/datasetB.parquet ^
@@ -295,7 +301,7 @@ Note: Replace "output" with the {jobname} if you want to partition the output
     $env:PYSPARK_PYTHON=(Resolve-Path .\.venv\Scripts\python.exe).Path
     $env:PYSPARK_DRIVER_PYTHON=$env:PYSPARK_PYTHON
 
-    spark-submit --master local[*] src/item_ranker/main.py `
+    .\.venv\Scripts\spark-submit --master local[*] src/item_ranker/main.py `
       --job task1_etl_job `
       --dataset_a_path data/input/datasetA.parquet `
       --dataset_b_path data/input/datasetB.parquet `
@@ -308,7 +314,7 @@ Note: Replace "output" with the {jobname} if you want to partition the output
     export PYSPARK_PYTHON=$(pwd)/.venv/bin/python
     export PYSPARK_DRIVER_PYTHON=$PYSPARK_PYTHON
 
-    spark-submit --master local[*] src/item_ranker/main.py \
+    .venv/bin/spark-submit --master local[*] src/item_ranker/main.py \
       --job task1_etl_job \
       --dataset_a_path data/input/datasetA.parquet \
       --dataset_b_path data/input/datasetB.parquet \
@@ -378,6 +384,29 @@ Note: Replace "output" with the {jobname} if you want to partition the output
     .\.venv\Scripts\python.exe -m pytest tests/unit -v
     .\.venv\Scripts\python.exe -m pytest tests/integration/test_task2_etl_job.py -v
 
+```
+
+  From repository root (Command Prompt):
+```
+    set PYTHONPATH=%CD%\src
+    set PYSPARK_PYTHON=%CD%\.venv\Scripts\python.exe
+    set PYSPARK_DRIVER_PYTHON=%PYSPARK_PYTHON%
+    set SPARK_HOME=
+
+    REM Fast suite (unit + synthetic-data integration). Excludes the
+    REM real-fixtures smoke test marked @pytest.mark.slow.
+    .venv\Scripts\python.exe -m pytest -m "not slow"
+
+    REM Full suite — also runs integration tests against the real
+    REM data/input/dataset{A,B}.parquet fixtures for task1 AND task2,
+    REM plus a cross-job equivalence check (task1 ≡ task2 output).
+    .venv\Scripts\python.exe -m pytest
+
+    REM Run a single test or directory:
+    .venv\Scripts\python.exe -m pytest tests/unit -v
+    .venv\Scripts\python.exe -m pytest tests/integration/test_task2_etl_job.py -v
+```
+
   Test layout (see `tests/` tree in §2):
     - Unit tests use the shared Spark fixture for transforms; pure-Python
       tests (config, CLI, dated-path writer, schema mapping) need no Spark.
@@ -393,13 +422,12 @@ Note: Replace "output" with the {jobname} if you want to partition the output
           over `task1_etl_job` and `task2_etl_job`, plus an equivalence
           test asserting task1 and task2 produce identical output sets
           (since salting must not change final results).
-```
 # 5. Program Flow
 
 ```
 CLI (main.py)
  │
- ├─ parse args & load .env
+ ├─ parse args
  ├─ create SparkSession (KryoSerializer)
  ├─ dynamically load job module
  │

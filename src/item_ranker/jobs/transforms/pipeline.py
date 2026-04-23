@@ -4,9 +4,13 @@ from item_ranker.jobs.transforms.base import RDDTransformation
 class TransformationPipeline:
     """Orchestrates a sequence of RDD transformations.
 
-    Chains multiple RDDTransformation objects, executing them
-    sequentially. This enables reuse: swap transforms to build
-    entirely different pipelines for different specifications.
+    Chains multiple `RDDTransformation` objects and executes them
+    sequentially. The output of one transform becomes the input of the
+    next, enabling reuse: swap transforms to build entirely different
+    pipelines for different specifications.
+
+    Type-checks each member at construction time so misconfigured
+    pipelines fail fast rather than at the first Spark action.
     """
 
     def __init__(self, transforms: list):
@@ -15,6 +19,7 @@ class TransformationPipeline:
                 raise TypeError(
                     f"Expected RDDTransformation, got {type(t).__name__}"
                 )
+        # Defensive copy so caller mutations don't affect the pipeline.
         self._transforms = list(transforms)
 
     def run(self, rdd):

@@ -1,7 +1,9 @@
+"""Unit tests for `EnricherTransform` map-side enrichment."""
 from item_ranker.jobs.transforms.enricher import EnricherTransform
 
 
 def test_enricher_inserts_lookup_value_at_position(spark):
+    """The broadcast-dict value is inserted at ``insert_pos``."""
     bcast = spark.sparkContext.broadcast({1: "Alpha", 2: "Beta"})
     rdd = spark.sparkContext.parallelize([
         (1, 1, "apple"),
@@ -21,6 +23,7 @@ def test_enricher_inserts_lookup_value_at_position(spark):
 
 
 def test_enricher_inserts_none_when_key_missing(spark):
+    """Missing keys produce ``None`` (output schema marks column nullable)."""
     bcast = spark.sparkContext.broadcast({1: "Alpha"})
     rdd = spark.sparkContext.parallelize([(99, 1, "x")])
     out = EnricherTransform(

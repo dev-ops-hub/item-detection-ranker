@@ -1,10 +1,16 @@
+"""Unit tests for `SaltedAggregatorTransform`.
+
+Salting must be invisible to the caller: final counts must equal those
+produced by the plain `AggregatorTransform`. Only the shuffle pattern
+changes, never the result.
+"""
 from item_ranker.jobs.transforms.salted_aggregator import (
     SaltedAggregatorTransform,
 )
 
 
 def test_salted_aggregator_matches_plain_counts(spark):
-    """Salting must not change the final counts — only how they're shuffled."""
+    """Salting must not change the final counts -- only how they're shuffled."""
     rows = [
         (1, 10, 100, "apple", 1),
         (1, 10, 101, "apple", 1),
@@ -38,6 +44,7 @@ def test_salted_aggregator_handles_hot_key(spark):
 
 
 def test_salted_aggregator_single_row(spark):
+    """A single input row produces a single (key, 1) output entry."""
     rdd = spark.sparkContext.parallelize([(1, 0, 0, "x", 0)])
     out = SaltedAggregatorTransform(
         key_indices=(0, 3), num_salts=2
