@@ -461,6 +461,8 @@ CLI (main.py)
 
 # 6. Pipeline Stages
 
+### `task1_etl_job` (baseline) and `task2_etl_job` (non-skew path)
+
 | Stage | Transform | Operation | Shuffles | Purpose |
 |-------|-----------|-----------|----------|---------|
 | 1 | `DeduplicatorTransform` | `reduceByKey` on `detection_oid` | 1 | Remove duplicate detection events |
@@ -468,7 +470,23 @@ CLI (main.py)
 | 3 | `RankingTransform` | `groupByKey` + sort + slice | 1 | Rank items and keep top-X per location |
 | 4 | `EnricherTransform` | Broadcast dict lookup | 0 | Add human-readable location names |
 
-**Total: 3 shuffle stages** (near-optimal). Tie-breaking in ranking uses alphabetical order for deterministic results.
+**Total: 3 shuffle stages** (near-optimal).
+
+### `task2_etl_job` (skew-detected path)
+
+Before Stage 2, task2 checks partition-size skew. If
+`max_partition_size / avg_partition_size > 1.5`, task2 swaps in salted
+aggregation:
+
+| Stage | Transform | Operation | Shuffles | Purpose |
+|-------|-----------|-----------|----------|---------|
+| 1 | `DeduplicatorTransform` | `reduceByKey` on `detection_oid` | 1 | Remove duplicate detection events |
+| 2a | `SaltedAggregatorTransform` (phase 1) | `reduceByKey(add)` on salted `(geo_oid, item_name, salt)` | 1 | Split hot keys across buckets |
+| 2b | `SaltedAggregatorTransform` (phase 2) | `reduceByKey(add)` after unsalt to `(geo_oid, item_name)` | 1 | Merge partial counts |
+| 3 | `RankingTransform` | `groupByKey` + sort + slice | 1 | Rank items and keep top-X per location |
+| 4 | `EnricherTransform` | Broadcast dict lookup | 0 | Add human-readable location names |
+
+**Total: 4 shuffle stages** in the skew-aware path. Tie-breaking in ranking uses alphabetical order for deterministic results.
 
 # 7. Data Schemas
 ### Input: Dataset A (Detections) — Parquet, ~1M rows
