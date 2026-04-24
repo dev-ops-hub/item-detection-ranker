@@ -40,8 +40,11 @@ def run(spark, config: PipelineConfig):
     dataset_b_rdd = RDDIOFactory.read_rdd(
         spark, PARQUET_FORMAT, config.dataset_b_path)
 
-    logger.info("Loaded dataset A with rows=%s", dataset_a_rdd.count())
-    logger.info("Loaded dataset B with rows=%s", dataset_b_rdd.count())
+    dataset_a_rows = dataset_a_rdd.count()
+    dataset_b_rows = dataset_b_rdd.count()
+
+    logger.info("Loaded dataset A with rows=%s", dataset_a_rows)
+    logger.info("Loaded dataset B with rows=%s", dataset_b_rows)
     logger.info("Loaded dataset A with numPartitions=%s",
                 dataset_a_rdd.getNumPartitions())
     logger.info("Loaded dataset B with numPartitions=%s",
@@ -78,7 +81,12 @@ def run(spark, config: PipelineConfig):
         ),
     ])
     # Run the transformation pipeline.
-    result_rdd = pipeline.run(dataset_a_rdd)
+    result_rdd = pipeline.run(
+        dataset_a_rdd,
+        logger=logger,
+        enable_metrics=True,
+        initial_rows=dataset_a_rows,
+    )
 
     # Write the result to the output path (writer stamps the run date).
     RDDIOFactory.write_rdd(
@@ -88,3 +96,5 @@ def run(spark, config: PipelineConfig):
         config.output_path,
         OUTPUT_SCHEMA,
     )
+
+    result_rdd.unpersist()

@@ -257,7 +257,7 @@ Note: Replace "output" with the {jobname} if you want to partition the output
       --job task1_etl_job ^
       --dataset_a_path data/input/datasetA.parquet ^
       --dataset_b_path data/input/datasetB.parquet ^
-      --output_path data/output/output.parquet ^
+      --output_path data/output ^
       --top-x 10
 
   From repository root (PowerShell):
@@ -269,7 +269,7 @@ Note: Replace "output" with the {jobname} if you want to partition the output
       --job task1_etl_job `
       --dataset_a_path data/input/datasetA.parquet `
       --dataset_b_path data/input/datasetB.parquet `
-      --output_path data/output/output.parquet `
+      --output_path data/output `
       --top-x 10
 
   From repository root (macOS/Linux — bash/zsh):
@@ -281,7 +281,7 @@ Note: Replace "output" with the {jobname} if you want to partition the output
       --job task1_etl_job \
       --dataset_a_path data/input/datasetA.parquet \
       --dataset_b_path data/input/datasetB.parquet \
-      --output_path data/output/output.parquet \
+      --output_path data/output \
       --top-x 10
 
 4.3 spark-submit Run
@@ -299,7 +299,7 @@ Note: Replace "output" with the {jobname} if you want to partition the output
       --job task1_etl_job ^
       --dataset_a_path data/input/datasetA.parquet ^
       --dataset_b_path data/input/datasetB.parquet ^
-      --output_path data/output/output.parquet ^
+      --output_path data/output ^
       --top-x 10
   
   From repository root (PowerShell):
@@ -312,7 +312,7 @@ Note: Replace "output" with the {jobname} if you want to partition the output
       --job task1_etl_job `
       --dataset_a_path data/input/datasetA.parquet `
       --dataset_b_path data/input/datasetB.parquet `
-      --output_path data/output/output.parquet `
+      --output_path data/output `
       --top-x 10
 
   From repository root (macOS/Linux — bash/zsh):
@@ -325,7 +325,7 @@ Note: Replace "output" with the {jobname} if you want to partition the output
       --job task1_etl_job \
       --dataset_a_path data/input/datasetA.parquet \
       --dataset_b_path data/input/datasetB.parquet \
-      --output_path data/output/output.parquet \
+      --output_path data/output \
       --top-x 10
 
   Rationale to set PYSPARK_PYTHON and PYSPARK_DRIVER_PYTHON:
@@ -501,20 +501,31 @@ Output is written to a date-stamped subfolder, e.g. `data/output/{run_time_date}
 
 # 8. SHUFFLE ANALYSIS
 
-Total shuffle stages: 3
+Baseline pipeline (`task1_etl_job`) and the non-skew path in
+`task2_etl_job`: 3 shuffle stages
 
   Stage  | Operator                    | Data Volume Moving
   -------|-----------------------------|------------------------------------
   1      | reduceByKey (dedup)         | Reduced: map-side combine on oid
   2      | reduceByKey (aggregation)   | Reduced: map-side combine on counts
-  3      | groupByKey  (ranking)       | Small: post-aggregation entries only
+  3      | groupByKey (ranking)        | Small: post-aggregation entries only
 
-The broadcast join adds 0 additional shuffles. By contrast, using RDD.join()
-for enrichment would add a 4th shuffle on potentially large data.
+Skew-aware pipeline (`task2_etl_job`) when skew is detected: 4 shuffle stages
 
-Overall: 3 shuffles is near-optimal for this pipeline. The first two benefit
-from map-side combiners (reduceByKey), and the third operates on a much
-smaller dataset after aggregation.
+  Stage  | Operator                            | Data Volume Moving
+  -------|-------------------------------------|------------------------------------
+  1      | reduceByKey (dedup)                 | Reduced: map-side combine on oid
+  2      | reduceByKey (salted aggregation 1)  | Hot keys split across salt buckets
+  3      | reduceByKey (salted aggregation 2)  | Partial counts merged after unsalt
+  4      | groupByKey (ranking)                | Small: post-aggregation entries only
+
+The broadcast join adds 0 additional shuffles in all paths. By contrast,
+using `RDD.join()` for enrichment would add one more shuffle on potentially
+large data.
+
+Overall: the baseline pipeline is near-optimal at 3 shuffles for dedup,
+aggregate, and rank. The salted path intentionally pays one extra shuffle to
+spread hot keys more evenly and reduce skew-related stragglers.
 
 # 9. POTENTIAL FUTURE IMPROVEMENTS
 
@@ -524,21 +535,11 @@ If data volumes grow significantly beyond 1M rows:
      materializing all items per group in memory.  
   b) Add data quality checks (null detection_oid, null item_name) with
      configurable handling policies (drop, default, fail).  
-  c) Add pipeline metrics/logging: row counts before and after each
-     transform stage, execution time per stage.  
-  d) Partition output by geographical_location_oid for efficient
+  c) Partition output by geographical_location_oid for efficient
      downstream queries.  
-  e) Consider pre-partitioning the detections RDD by geo_oid to co-locate
+  d) Consider pre-partitioning the dataSet_a RDD by geo_oid to co-locate
      data for aggregation and ranking, potentially reducing shuffle volume
      if key distribution allows.  
-  f) (Implemented) Unit tests for each transform class are in
-     `tests/unit/transforms/`, using a shared session-scoped SparkSession
-     fixture with `local[2]` mode (see `tests/conftest.py`).  
-  g) (Implemented) Integration tests for both `task1_etl_job` and
-     `task2_etl_job` (incl. the salted-aggregation skew path) are in
-     `tests/integration/`, with parquet I/O and `OUTPUT_SCHEMA`
-     validation, plus a real-fixtures smoke test on `data/input/`.
-
 
 # 10. SUMMARY
 
