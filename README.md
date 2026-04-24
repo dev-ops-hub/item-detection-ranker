@@ -244,8 +244,9 @@ Follow these steps once before running the project for the first time.
 
 4.2 Python Module Run (recommended for local dev)
 --------------------------------------------------
-Note: Replace "output" with the {jobname} if you want to partition the output
-      based on the job run   
+Note: 
+1. Replace "output" with the {jobname} if you want to partition the output based on the job run  
+2. Replace task1_etl_job -> task2_etl_job for Task 2 ETL   
 
   From repository root (Command Prompt):
 
