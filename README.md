@@ -438,18 +438,33 @@ CLI (main.py)
  ├─ create SparkSession (KryoSerializer)
  ├─ dynamically load job module
  │
- └─ task1_etl_job.run(spark, config)
+ └─ Dispatch by --job
+   │
+   ├─ task1_etl_job.run(spark, config)
+   │   │
+   │   ├─ Read Dataset A (detections)   ── RDDIOFactory ── ParquetRDDReader
+   │   ├─ Read Dataset B (locations)    ── RDDIOFactory ── ParquetRDDReader
+   │   ├─ Broadcast Dataset B as dict
+   │   ├─ Stage 1: DeduplicatorTransform   (reduceByKey)
+   │   ├─ Stage 2: AggregatorTransform     (reduceByKey + add)
+   │   ├─ Stage 3: RankingTransform        (groupByKey + sort + top-X)
+   │   ├─ Stage 4: EnricherTransform       (broadcast map-side join)
+   │   └─ Write results                 ── RDDIOFactory ── ParquetRDDWriter
+   │
+   └─ task2_etl_job.run(spark, config)
      │
      ├─ Read Dataset A (detections)   ── RDDIOFactory ── ParquetRDDReader
      ├─ Read Dataset B (locations)    ── RDDIOFactory ── ParquetRDDReader
      ├─ Broadcast Dataset B as dict
-     │
-     ├─ TransformationPipeline
-     │   ├─ Stage 1: DeduplicatorTransform   (reduceByKey)
-     │   ├─ Stage 2: AggregatorTransform     (reduceByKey + add)
-     │   ├─ Stage 3: RankingTransform        (groupByKey + sort + top-X)
-     │   └─ Stage 4: EnricherTransform       (broadcast map-side join)
-     │
+     ├─ Stage 1: DeduplicatorTransform   (reduceByKey)
+     ├─ SkewValidator: check partition-size ratio
+     ├─ if skew ratio > skew_threshold
+     │   ├─ Stage 2a: SaltedAggregatorTransform (phase 1 reduceByKey)
+     │   └─ Stage 2b: SaltedAggregatorTransform (phase 2 reduceByKey)
+     ├─ else
+     │   └─ Stage 2: AggregatorTransform  (reduceByKey + add)
+     ├─ Stage 3: RankingTransform         (groupByKey + sort + top-X)
+     ├─ Stage 4: EnricherTransform        (broadcast map-side join)
      └─ Write results                 ── RDDIOFactory ── ParquetRDDWriter
 ```
 
