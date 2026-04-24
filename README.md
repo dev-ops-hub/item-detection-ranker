@@ -321,7 +321,7 @@ Note: Replace "output" with the {jobname} if you want to partition the output
     export PYSPARK_PYTHON=$(pwd)/.venv/bin/python
     export PYSPARK_DRIVER_PYTHON=$PYSPARK_PYTHON
 
-    .venv/bin/spark-submit --master local[*] src/item_ranker/main.py \
+    .venv/bin/spark-submit --master 'local[*]' src/item_ranker/main.py \
       --job task1_etl_job \
       --dataset_a_path data/input/datasetA.parquet \
       --dataset_b_path data/input/datasetB.parquet \
