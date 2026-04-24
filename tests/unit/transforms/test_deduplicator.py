@@ -1,7 +1,9 @@
+"""Unit tests for `DeduplicatorTransform`."""
 from item_ranker.jobs.transforms.deduplicator import DeduplicatorTransform
 
 
 def test_deduplicator_keeps_one_row_per_unique_key(spark):
+    """Duplicate detection_oids collapse to a single row."""
     rows = [
         (1, 10, 100, "a", 1),
         (1, 10, 100, "a", 1),
@@ -16,6 +18,7 @@ def test_deduplicator_keeps_one_row_per_unique_key(spark):
 
 
 def test_deduplicator_empty_rdd(spark):
+    """Empty input yields empty output (no errors from the shuffle)."""
     rdd = spark.sparkContext.parallelize([], numSlices=1)
     # Provide a dummy element then filter out so partitioner is happy
     rdd = rdd.filter(lambda _: False)
@@ -24,6 +27,7 @@ def test_deduplicator_empty_rdd(spark):
 
 
 def test_deduplicator_all_duplicates_collapse_to_one(spark):
+    """N identical rows collapse to a single deduplicated row."""
     rows = [(1, 1, 999, "x", 1)] * 5
     rdd = spark.sparkContext.parallelize(rows)
     out = DeduplicatorTransform(key_index=2).execute(rdd).collect()

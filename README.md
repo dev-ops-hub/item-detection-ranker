@@ -26,7 +26,7 @@ The project follows a src-layout architecture with clear separation of
 concerns:
 ```
   src/item_ranker/
-  ├─ main.py                      Entry point: CLI parsing, .env loading,
+  ├─ main.py                      Entry point: CLI parsing,
   │                                SparkSession, dynamic job module loading
   ├─ config.py                    Immutable PipelineConfig dataclass
   ├─ io/
@@ -37,6 +37,8 @@ concerns:
   │   ├─ task1_etl_job.py         ETL job (baseline pipeline)
   │   ├─ task2_etl_job.py         ETL job with data-skew detection +
   │   │                            salted aggregation when skew detected
+  │   ├─ quality/
+  │   │   └─ skew_validator.py    Partition-skew detection helper for task2
   │   ├─ schema/
   │   │   └─ mapping.py           StructType schemas for input/output datasets
   │   └─ transforms/
@@ -55,8 +57,13 @@ concerns:
   ├─ conftest.py                  Session-scoped local SparkSession fixture
   ├─ test_environment.py          .env loader unit tests
   ├─ test_log_manager.py          LogManager unit tests
-  ├─ unit/                        Unit tests (config, CLI, schema, IO,
-  │   │                            writer-path, skew detection)
+  ├─ unit/
+  │   ├─ test_config.py           PipelineConfig unit tests
+  │   ├─ test_io_factory.py       RDDIOFactory unit tests
+  │   ├─ test_main_cli.py         CLI parsing + job-loader unit tests
+  │   ├─ test_schema_mapping.py   Schema contract unit tests
+  │   ├─ test_skew_check.py       Skew-detection unit tests
+  │   ├─ test_writer_dated_path.py Dated-output-path writer tests
   │   └─ transforms/              One file per transform class
   └─ integration/                 End-to-end pipeline tests on local Spark
       ├─ test_task1_etl_job.py    Synthetic-data full pipeline (task1)
@@ -99,8 +106,7 @@ Available jobs (passed via `--job`):
 Environment configuration:
   - Place a .env file at repo root with LOG_LEVEL=INFO (or DEBUG, etc.)
   - load_project_env() reads this at startup via python-dotenv.
-  - PYTHONPATH must be set in the shell before launch (not via .env)
-    because Python reads PYTHONPATH only at interpreter startup.
+
 
 
 # 4. HOW TO RUN
@@ -221,6 +227,11 @@ Follow these steps once before running the project for the first time.
     $env:PYTHONPATH=(Resolve-Path .\src).Path
     .\.venv\Scripts\python.exe -c "import pyspark; print(pyspark.__version__)"
 
+  **Windows (Command Prompt):**
+
+    set PYTHONPATH=%CD%\src
+    .venv\Scripts\python.exe -c "import pyspark; print(pyspark.__version__)"
+
   Expected output: `4.0.2`
 
 4.1 Prerequisites
@@ -246,7 +257,7 @@ Note: Replace "output" with the {jobname} if you want to partition the output
       --job task1_etl_job ^
       --dataset_a_path data/input/datasetA.parquet ^
       --dataset_b_path data/input/datasetB.parquet ^
-      --output_path data/output/output.parquet ^
+      --output_path data/output ^
       --top-x 10
 
   From repository root (PowerShell):
@@ -258,7 +269,7 @@ Note: Replace "output" with the {jobname} if you want to partition the output
       --job task1_etl_job `
       --dataset_a_path data/input/datasetA.parquet `
       --dataset_b_path data/input/datasetB.parquet `
-      --output_path data/output/output.parquet `
+      --output_path data/output `
       --top-x 10
 
   From repository root (macOS/Linux — bash/zsh):
@@ -270,23 +281,25 @@ Note: Replace "output" with the {jobname} if you want to partition the output
       --job task1_etl_job \
       --dataset_a_path data/input/datasetA.parquet \
       --dataset_b_path data/input/datasetB.parquet \
-      --output_path data/output/output.parquet \
+      --output_path data/output \
       --top-x 10
 
 4.3 spark-submit Run
 --------------------
-  
+  Note: `spark-submit` is installed inside the venv by PySpark and is NOT
+  a system command. Use the full path to the venv's spark-submit script.
+
   From repository root (Command Prompt):
 
     set PYTHONPATH=%CD%\src
     set PYSPARK_PYTHON=%CD%\.venv\Scripts\python.exe
     set PYSPARK_DRIVER_PYTHON=%PYSPARK_PYTHON%
 
-    spark-submit --master local[*] src/item_ranker/main.py ^
+    .venv\Scripts\spark-submit --master local[*] src/item_ranker/main.py ^
       --job task1_etl_job ^
       --dataset_a_path data/input/datasetA.parquet ^
       --dataset_b_path data/input/datasetB.parquet ^
-      --output_path data/output/output.parquet ^
+      --output_path data/output ^
       --top-x 10
   
   From repository root (PowerShell):
@@ -295,11 +308,11 @@ Note: Replace "output" with the {jobname} if you want to partition the output
     $env:PYSPARK_PYTHON=(Resolve-Path .\.venv\Scripts\python.exe).Path
     $env:PYSPARK_DRIVER_PYTHON=$env:PYSPARK_PYTHON
 
-    spark-submit --master local[*] src/item_ranker/main.py `
+    .\.venv\Scripts\spark-submit --master local[*] src/item_ranker/main.py `
       --job task1_etl_job `
       --dataset_a_path data/input/datasetA.parquet `
       --dataset_b_path data/input/datasetB.parquet `
-      --output_path data/output/output.parquet `
+      --output_path data/output `
       --top-x 10
 
   From repository root (macOS/Linux — bash/zsh):
@@ -308,11 +321,11 @@ Note: Replace "output" with the {jobname} if you want to partition the output
     export PYSPARK_PYTHON=$(pwd)/.venv/bin/python
     export PYSPARK_DRIVER_PYTHON=$PYSPARK_PYTHON
 
-    spark-submit --master local[*] src/item_ranker/main.py \
+    .venv/bin/spark-submit --master local[*] src/item_ranker/main.py \
       --job task1_etl_job \
       --dataset_a_path data/input/datasetA.parquet \
       --dataset_b_path data/input/datasetB.parquet \
-      --output_path data/output/output.parquet \
+      --output_path data/output \
       --top-x 10
 
   Rationale to set PYSPARK_PYTHON and PYSPARK_DRIVER_PYTHON:
@@ -378,6 +391,29 @@ Note: Replace "output" with the {jobname} if you want to partition the output
     .\.venv\Scripts\python.exe -m pytest tests/unit -v
     .\.venv\Scripts\python.exe -m pytest tests/integration/test_task2_etl_job.py -v
 
+```
+
+  From repository root (Command Prompt):
+```
+    set PYTHONPATH=%CD%\src
+    set PYSPARK_PYTHON=%CD%\.venv\Scripts\python.exe
+    set PYSPARK_DRIVER_PYTHON=%PYSPARK_PYTHON%
+    set SPARK_HOME=
+
+    REM Fast suite (unit + synthetic-data integration). Excludes the
+    REM real-fixtures smoke test marked @pytest.mark.slow.
+    .venv\Scripts\python.exe -m pytest -m "not slow"
+
+    REM Full suite — also runs integration tests against the real
+    REM data/input/dataset{A,B}.parquet fixtures for task1 AND task2,
+    REM plus a cross-job equivalence check (task1 ≡ task2 output).
+    .venv\Scripts\python.exe -m pytest
+
+    REM Run a single test or directory:
+    .venv\Scripts\python.exe -m pytest tests/unit -v
+    .venv\Scripts\python.exe -m pytest tests/integration/test_task2_etl_job.py -v
+```
+
   Test layout (see `tests/` tree in §2):
     - Unit tests use the shared Spark fixture for transforms; pure-Python
       tests (config, CLI, dated-path writer, schema mapping) need no Spark.
@@ -393,13 +429,12 @@ Note: Replace "output" with the {jobname} if you want to partition the output
           over `task1_etl_job` and `task2_etl_job`, plus an equivalence
           test asserting task1 and task2 produce identical output sets
           (since salting must not change final results).
-```
 # 5. Program Flow
 
 ```
 CLI (main.py)
  │
- ├─ parse args & load .env
+ ├─ parse args
  ├─ create SparkSession (KryoSerializer)
  ├─ dynamically load job module
  │
@@ -466,20 +501,31 @@ Output is written to a date-stamped subfolder, e.g. `data/output/{run_time_date}
 
 # 8. SHUFFLE ANALYSIS
 
-Total shuffle stages: 3
+Baseline pipeline (`task1_etl_job`) and the non-skew path in
+`task2_etl_job`: 3 shuffle stages
 
   Stage  | Operator                    | Data Volume Moving
   -------|-----------------------------|------------------------------------
   1      | reduceByKey (dedup)         | Reduced: map-side combine on oid
   2      | reduceByKey (aggregation)   | Reduced: map-side combine on counts
-  3      | groupByKey  (ranking)       | Small: post-aggregation entries only
+  3      | groupByKey (ranking)        | Small: post-aggregation entries only
 
-The broadcast join adds 0 additional shuffles. By contrast, using RDD.join()
-for enrichment would add a 4th shuffle on potentially large data.
+Skew-aware pipeline (`task2_etl_job`) when skew is detected: 4 shuffle stages
 
-Overall: 3 shuffles is near-optimal for this pipeline. The first two benefit
-from map-side combiners (reduceByKey), and the third operates on a much
-smaller dataset after aggregation.
+  Stage  | Operator                            | Data Volume Moving
+  -------|-------------------------------------|------------------------------------
+  1      | reduceByKey (dedup)                 | Reduced: map-side combine on oid
+  2      | reduceByKey (salted aggregation 1)  | Hot keys split across salt buckets
+  3      | reduceByKey (salted aggregation 2)  | Partial counts merged after unsalt
+  4      | groupByKey (ranking)                | Small: post-aggregation entries only
+
+The broadcast join adds 0 additional shuffles in all paths. By contrast,
+using `RDD.join()` for enrichment would add one more shuffle on potentially
+large data.
+
+Overall: the baseline pipeline is near-optimal at 3 shuffles for dedup,
+aggregate, and rank. The salted path intentionally pays one extra shuffle to
+spread hot keys more evenly and reduce skew-related stragglers.
 
 # 9. POTENTIAL FUTURE IMPROVEMENTS
 
@@ -489,31 +535,27 @@ If data volumes grow significantly beyond 1M rows:
      materializing all items per group in memory.  
   b) Add data quality checks (null detection_oid, null item_name) with
      configurable handling policies (drop, default, fail).  
-  c) Add pipeline metrics/logging: row counts before and after each
-     transform stage, execution time per stage.  
-  d) Partition output by geographical_location_oid for efficient
+  c) Partition output by geographical_location_oid for efficient
      downstream queries.  
-  e) Consider pre-partitioning the detections RDD by geo_oid to co-locate
+  d) Consider pre-partitioning the dataSet_a RDD by geo_oid to co-locate
      data for aggregation and ranking, potentially reducing shuffle volume
      if key distribution allows.  
-  f) (Implemented) Unit tests for each transform class are in
-     `tests/unit/transforms/`, using a shared session-scoped SparkSession
-     fixture with `local[2]` mode (see `tests/conftest.py`).  
-  g) (Implemented) Integration tests for both `task1_etl_job` and
-     `task2_etl_job` (incl. the salted-aggregation skew path) are in
-     `tests/integration/`, with parquet I/O and `OUTPUT_SCHEMA`
-     validation, plus a real-fixtures smoke test on `data/input/`.
-
 
 # 10. SUMMARY
 
 The implemented pipeline achieves:
   - Full RDD-based transformation logic (DataFrame only for parquet I/O)
-  - 3 total shuffle stages (near-optimal for dedup + aggregate + rank)
+  - 3 total shuffle stages on the baseline path (near-optimal for
+    dedup + aggregate + rank); +1 extra shuffle on the salted path,
+    accepted only when runtime skew is detected
   - 0 additional shuffles from enrichment (broadcast map-side join)
+  - Adaptive skew handling via `task2_etl_job`: inspects partition sizes
+    at runtime and swaps in `SaltedAggregatorTransform` (two-phase
+    salted reduce) 
   - Clean separation via Strategy + Pipeline + Factory design patterns
   - Immutable configuration via frozen PipelineConfig dataclass
   - Dynamic job loading for multiple pipeline variants
+    (`task1_etl_job`, `task2_etl_job`)
   - Dated output paths for run-level organization
   - Runtime-configurable paths and top-X parameter via CLI
   - Environment configuration via .env with python-dotenv

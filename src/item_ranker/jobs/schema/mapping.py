@@ -1,3 +1,14 @@
+"""Canonical StructType schemas for the item-detection-ranker pipeline.
+
+These schemas define the contract for:
+    * Dataset A (detections parquet input)
+    * Dataset B (locations parquet input)
+    * The ranked parquet output
+
+Job code resolves column positions by calling ``<SCHEMA>.fieldNames().index(
+"<column_name>")`` rather than hard-coding integer indices, so schema
+reordering stays safe.
+"""
 from pyspark.sql.types import (
     IntegerType,
     LongType,
@@ -7,32 +18,10 @@ from pyspark.sql.types import (
 )
 
 
-# # Column indices for Dataset A (detections parquet)
-# # (geographical_location_oid, video_camera_oid, detection_oid,
-# #  item_name, timestamp_detected)
-
-# DATASETA_GEOLOC_INDEX = 0
-# DATASETA_VIDEOCAM_INDEX = 1
-# DATASETA_DETECTION_INDEX = 2
-# DATASETA_ITEMNAME_INDEX = 3
-# DATASETA_TIMESTAMP_INDEX = 4
-
-
-# DATASETA_INDEX_MAP = {
-#     "GEO_LOC_INDEX": 0,
-#     "VIDEO_CAM_INDEX": 1,
-#     "DETECTION_INDEX": 2,
-#     "ITEM_NAME_INDEX": 3,
-#     "TIMESTAMP_INDEX": 4
-# }
-
-# # (geographical_location_oid, geo_location)
-# DATASETB_INDEX_MAP = {
-#     "GEO_LOC_INDEX": 0,
-#     "GEO_NAME_INDEX": 1,
-# }
-
-
+# Dataset A -- detections (~1M rows). ``detection_oid`` may repeat across
+# rows and must be deduplicated before counting items.
+# Fields: (geographical_location_oid, video_camera_oid, detection_oid,
+#          item_name, timestamp_detected)
 DATASETA_SCHEMA = StructType([
     StructField("geographical_location_oid", LongType(), False),
     StructField("video_camera_oid", LongType(), False),
@@ -41,11 +30,16 @@ DATASETA_SCHEMA = StructType([
     StructField("timestamp_detected", LongType(), False),
 ])
 
+# Dataset B -- location lookup (~10K rows). Small enough to broadcast for
+# a map-side join in the enrichment stage.
 DATASETB_SCHEMA = StructType([
     StructField("geographical_location_oid", LongType(), False),
     StructField("geographical_location", StringType(), False),
 ])
 
+# Output schema -- ranked items per geographical location.
+# ``geographical_location`` is nullable because Dataset A may contain a
+# geo_oid that does not exist in the Dataset B lookup.
 OUTPUT_SCHEMA = StructType([
     StructField("geographical_location_oid", LongType(), False),
     StructField("geographical_location", StringType(), True),

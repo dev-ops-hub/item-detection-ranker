@@ -1,3 +1,9 @@
+"""Integration tests for `task1_etl_job` against a local Spark.
+
+Drives the full pipeline (dedup -> aggregate -> rank -> enrich -> write)
+on small, hand-crafted synthetic datasets and asserts both the schema
+and the per-geo ranking semantics described in the project README.
+"""
 import datetime as dt
 from pathlib import Path
 
@@ -14,6 +20,14 @@ from item_ranker.jobs.schema.mapping import (
 
 @pytest.fixture
 def synthetic_inputs(spark, tmp_path):
+    """Write small synthetic Dataset A and Dataset B parquet files.
+
+    Covers three scenarios in one fixture:
+        * geo 1: multiple items, includes a duplicate detection_oid.
+        * geo 2: simple two-item case.
+        * geo 3: present in Dataset A but missing from Dataset B (so
+          enrichment must yield ``None`` for the location name).
+    """
     rows_a = [
         # geo 1: apple x3 (one duplicated detection_oid),
         #        banana x2, cherry x1
@@ -47,10 +61,12 @@ def synthetic_inputs(spark, tmp_path):
 
 
 def _today_dir(base: Path) -> Path:
+    """Return ``base/<today>`` -- the run-date subdirectory the writer uses."""
     return base / dt.date.today().isoformat()
 
 
 def test_task1_etl_job_end_to_end(spark, tmp_path, synthetic_inputs):
+    """Full pipeline produces correct ranked, enriched output (top_x=2)."""
     a_path, b_path = synthetic_inputs
     out_base = tmp_path / "out"
     out_path = out_base / "result.parquet"
@@ -95,6 +111,7 @@ def test_task1_etl_job_end_to_end(spark, tmp_path, synthetic_inputs):
 
 
 def test_task1_etl_job_respects_top_x(spark, tmp_path, synthetic_inputs):
+    """With ``top_x=1`` exactly one row per geographical location is kept."""
     a_path, b_path = synthetic_inputs
     out_base = tmp_path / "out_topx1"
     config = PipelineConfig(

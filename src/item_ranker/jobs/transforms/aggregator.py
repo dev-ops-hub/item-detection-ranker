@@ -6,13 +6,15 @@ from item_ranker.jobs.transforms.base import RDDTransformation
 class AggregatorTransform(RDDTransformation):
     """Count occurrences per composite key.
 
-    Given an RDD of tuples, extracts a composite key from specified
-    indices and counts occurrences using reduceByKey.
+    Given an RDD of tuples, extracts a composite key from the supplied
+    positional indices and counts occurrences with ``reduceByKey``
+    (which performs map-side combining for an efficient shuffle).
 
     Args:
         key_indices: Tuple of positional indices forming the grouping key.
 
-    Output RDD format: ((geo_oid, item_name), no_of_occurence)
+    Output RDD format: ``((key_field_1, key_field_2, ...), count)``
+    For this pipeline that is ``((geo_oid, item_name), count)``.
     """
 
     def __init__(self, key_indices: tuple):
@@ -20,6 +22,7 @@ class AggregatorTransform(RDDTransformation):
 
     def execute(self, rdd):
         """Aggregate counts by composite key."""
+        # Bind to a local for the closure shipped to executors.
         indices = self._key_indices
         return (
             rdd
