@@ -17,8 +17,7 @@ class SaltedAggregatorTransform(RDDTransformation):
     Args:
         key_indices: Tuple of positional indices forming the grouping key.
         num_salts: Number of salt buckets across which to distribute
-            the hot key. Larger values trade more phase-1 partial keys
-            for better parallelism on extreme skew.
+            the hot key.
     """
 
     def __init__(self, key_indices: tuple, num_salts: int):

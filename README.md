@@ -545,11 +545,17 @@ If data volumes grow significantly beyond 1M rows:
 
 The implemented pipeline achieves:
   - Full RDD-based transformation logic (DataFrame only for parquet I/O)
-  - 3 total shuffle stages (near-optimal for dedup + aggregate + rank)
+  - 3 total shuffle stages on the baseline path (near-optimal for
+    dedup + aggregate + rank); +1 extra shuffle on the salted path,
+    accepted only when runtime skew is detected
   - 0 additional shuffles from enrichment (broadcast map-side join)
+  - Adaptive skew handling via `task2_etl_job`: inspects partition sizes
+    at runtime and swaps in `SaltedAggregatorTransform` (two-phase
+    salted reduce) 
   - Clean separation via Strategy + Pipeline + Factory design patterns
   - Immutable configuration via frozen PipelineConfig dataclass
   - Dynamic job loading for multiple pipeline variants
+    (`task1_etl_job`, `task2_etl_job`)
   - Dated output paths for run-level organization
   - Runtime-configurable paths and top-X parameter via CLI
   - Environment configuration via .env with python-dotenv
